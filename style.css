@@ -17,3 +17,20 @@ body
     left: 0;
     outline: none;
 }
+
+#loader{
+  position:fixed;
+  inset:0;
+  background:#000;
+  color:white;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-family:Arial;
+  font-size:28px;
+  z-index:1000;
+}
+
+#progress{
+  text-align:center;
+}

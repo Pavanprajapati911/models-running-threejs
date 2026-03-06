@@ -9,11 +9,12 @@ export class Interior {
     modelPath,
     position = new THREE.Vector3(),
     scale = 1,
+    loadingManager
   ) {
     this.scene = scene;
     // this.world = world;
 
-    const loader = new GLTFLoader();
+    const loader = new GLTFLoader(loadingManager);
 
     loader.load(modelPath, (gltf) => {
       this.model = gltf.scene;

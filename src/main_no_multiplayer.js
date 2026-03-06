@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { Character } from "./entities/character.js";
 import { InfiniteTerrain } from "./terrain.js";
-import { Network } from "./network.js";
 import Rapier from "@dimforge/rapier3d-compat";
 import { Interior } from "./entities/interior.js";
 import { InvisibleMesh } from "./entities/invisible_mesh.js";
@@ -9,14 +8,42 @@ import { ThreePerf } from "three-perf";
 
 await Rapier.init({});
 
+/* =========================
+   LOADING MANAGER
+========================= */
+
+const loaderDiv = document.getElementById("loader");
+const progressText = document.getElementById("progress");
+
+const loadingManager = new THREE.LoadingManager();
+
+loadingManager.onProgress = (url, loaded, total) => {
+  const percent = Math.floor((loaded / total) * 100);
+  progressText.innerText = `Loading ${percent}%`;
+};
+
+loadingManager.onLoad = () => {
+  loaderDiv.style.display = "none";
+  startGame();
+};
+
+/* =========================
+   PHYSICS
+========================= */
 
 const gravity = { x: 0, y: -20, z: 0 };
 const world = new Rapier.World(gravity);
 
+/* =========================
+   SCENE
+========================= */
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 
-let debugLines;
+/* =========================
+   DEBUG PHYSICS
+========================= */
 
 const debugMaterial = new THREE.LineBasicMaterial({
   vertexColors: true,
@@ -24,50 +51,77 @@ const debugMaterial = new THREE.LineBasicMaterial({
 
 const debugGeometry = new THREE.BufferGeometry();
 
-debugLines = new THREE.LineSegments(debugGeometry, debugMaterial);
+const debugLines = new THREE.LineSegments(debugGeometry, debugMaterial);
 scene.add(debugLines);
+
+/* =========================
+   CAMERA
+========================= */
 
 const camera = new THREE.PerspectiveCamera(
   60,
   window.innerWidth / window.innerHeight,
   0.1,
-  500,
+  500
 );
+
+/* =========================
+   RENDERER
+========================= */
 
 const canvas = document.querySelector(".webgl");
 
 const renderer = new THREE.WebGLRenderer({
-  canvas: canvas,
-  antialias: true
+  canvas,
+  antialias: true,
 });
+
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 
+/* =========================
+   PERFORMANCE MONITOR
+========================= */
+
 const perf = new ThreePerf({
   renderer,
-  domElement: document.body
+  domElement: document.body,
 });
 
+/* =========================
+   LIGHTS
+========================= */
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+
 const dirLight = new THREE.DirectionalLight(0xffffff, 1);
 dirLight.position.set(10, 20, 10);
 dirLight.castShadow = true;
+
 scene.add(dirLight);
+
+/* =========================
+   WORLD
+========================= */
 
 const terrain = new InfiniteTerrain(scene, world);
 
-// const network = new Network("ws://192.168.1.7:3000");
+/* =========================
+   CHARACTER
+========================= */
 
-// Choose character
 let modelChoice = null;
+
 while (!modelChoice) {
   const choice = prompt("Choose your character: 'soldier' or 'enemy'");
   if (choice === "soldier" || choice === "enemy") modelChoice = choice;
 }
+
 const modelPath =
-  modelChoice === "soldier" ? "/models/soldier2.glb" : "/models/soldier2.glb";
-// const startPos = new THREE.Vector3(Math.random() * 5, 2, Math.random() * 5);
+  modelChoice === "soldier"
+    ? "/models/soldier2.glb"
+    : "/models/soldier2.glb";
+
 const startPos = new THREE.Vector3(19, 2, 11.3);
 
 const localChar = new Character(
@@ -77,8 +131,12 @@ const localChar = new Character(
   modelPath,
   true,
   startPos,
+  loadingManager
 );
-const remoteChars = new Map();
+
+/* =========================
+   INTERIORS
+========================= */
 
 const interior = new Interior(
   scene,
@@ -86,6 +144,7 @@ const interior = new Interior(
   "/models/room.glb",
   new THREE.Vector3(10, 0, 10),
   2,
+  loadingManager
 );
 
 const interior2 = new Interior(
@@ -94,6 +153,7 @@ const interior2 = new Interior(
   "/models/room.glb",
   new THREE.Vector3(10, 0, 20),
   2,
+  loadingManager
 );
 
 const interior3 = new Interior(
@@ -102,157 +162,155 @@ const interior3 = new Interior(
   "/models/room.glb",
   new THREE.Vector3(10, 0, 30),
   2,
+  loadingManager
 );
+
 const interior4 = new Interior(
   scene,
   world,
   "/models/room.glb",
   new THREE.Vector3(10, 0, 0),
   2,
+  loadingManager
 );
-const interior5 = new Interior(
+
+const interior6 = new Interior(
   scene,
   world,
   "/models/room.glb",
   new THREE.Vector3(10, 0, -10),
   2,
+  loadingManager
+);
+const interior7 = new Interior(
+  scene,
+  world,
+  "/models/room.glb",
+  new THREE.Vector3(10, 0, -20),
+  2,
+  loadingManager
+);
+const interior8 = new Interior(
+  scene,
+  world,
+  "/models/room.glb",
+  new THREE.Vector3(10, 0, -30),
+  2,
+  loadingManager
+);
+const interior9 = new Interior(
+  scene,
+  world,
+  "/models/room.glb",
+  new THREE.Vector3(10, 0, -40),
+  2,
+  loadingManager
+);
+const interior10 = new Interior(
+  scene,
+  world,
+  "/models/room.glb",
+  new THREE.Vector3(10, 0, -50),
+  2,
+  loadingManager
 );
 
 
+/* =========================
+   INVISIBLE COLLIDER WALLS
+========================= */
 
-
-
-
-const wall = new InvisibleMesh(
+new InvisibleMesh(
   scene,
   world,
-  10.9, // width
-  3, // height
-  0.7, // depth
+  10.9,
+  3,
+  0.7,
   new THREE.Vector3(5.1, 2, 9.1),
   new THREE.Euler(0, Math.PI / 2, 0),
 );
 
-const wall2 = new InvisibleMesh(
+new InvisibleMesh(
   scene,
   world,
-  10.9, // width
-  3, // height
-  0.7, // depth
+  10.9,
+  3,
+  0.7,
   new THREE.Vector3(10.8, 2, 14.5),
   new THREE.Euler(0, Math.PI, 0),
 );
-const wall3 = new InvisibleMesh(
+
+new InvisibleMesh(
   scene,
   world,
-  4.9, // width
-  3, // height
-  0.7, // depth
+  4.9,
+  3,
+  0.7,
   new THREE.Vector3(16, 2, 11.5),
   new THREE.Euler(0, Math.PI / 2, 0),
 );
 
-const wall4 = new InvisibleMesh(
+new InvisibleMesh(
   scene,
   world,
-  10.9, // width
-  3, // height
-  0.7, // depth
+  10.9,
+  3,
+  0.7,
   new THREE.Vector3(10.8, 2, 3.7),
   new THREE.Euler(0, Math.PI, 0),
 );
 
-const wall5 = new InvisibleMesh(
+new InvisibleMesh(
   scene,
   world,
-  1.7, // width
-  3, // height
-  0.7, // depth
+  1.7,
+  3,
+  0.7,
   new THREE.Vector3(16.6, 2, 9.1),
   new THREE.Euler(0, Math.PI, 0),
 );
 
-const wall6 = new InvisibleMesh(
+new InvisibleMesh(
   scene,
   world,
-  1.7, // width
-  3, // height
-  0.7, // depth
+  1.7,
+  3,
+  0.7,
   new THREE.Vector3(16.6, 2, 4.4),
   new THREE.Euler(0, Math.PI, 0),
 );
-// Join network once connection opens
-// network.ws.onopen = () => {
-//   network.join(
-//     modelPath,
-//     localChar.position.toArray(),
-//     localChar.model?.rotation.toArray() || [0, 0, 0],
-//   );
-// };
 
-// // Handle updates from server
-// network.onUpdate = (chars) => {
-//   chars.forEach((c) => {
-//     if (c.id === network.id) return;
+/* =========================
+   CAMERA CONTROL
+========================= */
 
-//     let char = remoteChars.get(c.id);
-//     if (!char) {
-//       char = new Character(
-//         scene,
-//         terrain,
-//         world,
-//         c.model,
-//         false,
-//         new THREE.Vector3().fromArray(c.position),
-//       );
-//       remoteChars.set(c.id, char);
-//     }
-//     char.setRemoteState(c.position, c.rotation, c.anim);
-//   });
-// };
+let yaw = 0;
+let pitch = 0;
 
-// // Remove characters on leave
-// network.onLeave = (id) => {
-//   const char = remoteChars.get(id);
-//   if (char && char.model) scene.remove(char.model);
-//   remoteChars.delete(id);
-// };
-
-// network.onDamage = ({ targetId, health }) => {
-//   if (targetId === network.id) {
-//     localChar.health = health;
-//     localChar.updateHealthBar();
-//     localChar.spawnBloodEffect();
-//     return;
-//   }
-
-//   const target = remoteChars.get(targetId);
-//   if (target) {
-//     target.health = health;
-//     target.updateHealthBar();
-//     target.spawnBloodEffect();
-//   }
-// };
-
-// Camera
-let yaw = 0,
-  pitch = 0;
 const mouseSensitivity = 0.002;
+
 document.body.addEventListener("click", () =>
-  document.body.requestPointerLock(),
+  document.body.requestPointerLock()
 );
+
 document.addEventListener("mousemove", (e) => {
   if (document.pointerLockElement !== document.body) return;
+
   yaw -= e.movementX * mouseSensitivity;
   pitch -= e.movementY * mouseSensitivity;
+
   pitch = Math.max(-Math.PI / 6, Math.min(Math.PI / 4, pitch));
 });
 
-// Animate
+/* =========================
+   GAME LOOP
+========================= */
+
 let lastTime = performance.now();
 
 function animate() {
   requestAnimationFrame(animate);
+
   perf.begin();
 
   const now = performance.now();
@@ -274,7 +332,6 @@ function animate() {
   );
 
   debugLines.geometry.computeBoundingSphere();
-
 
   localChar.update(dt);
 
@@ -302,70 +359,26 @@ function animate() {
   }
 
   renderer.render(scene, camera);
+
   perf.end();
 }
 
-// function animate() {
-//   requestAnimationFrame(animate);
-//   perf.begin();
-//   const now = performance.now();
-//   const dt = Math.min((now - lastTime) / 1000, 0.033);
-//   lastTime = now;
-//   world.step();
+/* =========================
+   START GAME AFTER LOAD
+========================= */
 
-//   const { vertices, colors } = world.debugRender();
+function startGame() {
+  animate();
+}
 
-//   debugLines.geometry.setAttribute(
-//     "position",
-//     new THREE.BufferAttribute(vertices, 3),
-//   );
-
-//   debugLines.geometry.setAttribute(
-//     "color",
-//     new THREE.BufferAttribute(colors, 4),
-//   );
-
-//   debugLines.geometry.computeBoundingSphere();
-
-//   localChar.update(dt);
-//   // remoteChars.forEach((c) => c.update(dt));
-
-//   // if (localChar.model && network.ws.readyState === WebSocket.OPEN) {
-//   //   network.sendState(
-//   //     localChar.model.position.toArray(),
-//   //     localChar.model.rotation.toArray(),
-//   //     localChar.currentAnim,
-//   //   );
-//   // }
-
-//   // Camera follow
-//   if (localChar.model) {
-//     const camDist = 5;
-//     const camHeight = 3;
-//     const camDir = new THREE.Vector3(
-//       Math.sin(yaw) * Math.cos(pitch),
-//       Math.sin(pitch),
-//       Math.cos(yaw) * Math.cos(pitch),
-//     );
-//     camera.position
-//       .copy(localChar.model.position)
-//       .addScaledVector(camDir, camDist);
-//     camera.position.y += camHeight;
-//     camera.lookAt(
-//       localChar.model.position.x,
-//       localChar.model.position.y + 1.5,
-//       localChar.model.position.z,
-//     );
-//   }
-
-//   renderer.render(scene, camera);
-//   perf.end();
-
-// }
-animate();
+/* =========================
+   RESIZE
+========================= */
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
+
   camera.updateProjectionMatrix();
+
   renderer.setSize(window.innerWidth, window.innerHeight);
 });

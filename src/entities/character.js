@@ -12,6 +12,7 @@ export class Character {
     modelPath,
     isLocal = false,
     startPos = new THREE.Vector3(),
+    loadingManager
   ) {
     this.scene = scene;
     this.terrain = terrain;
@@ -68,7 +69,7 @@ export class Character {
     // ======================
     // LOAD MODEL
     // ======================
-    const loader = new GLTFLoader();
+    const loader = new GLTFLoader(loadingManager);
     loader.load(modelPath, (gltf) => {
       this.model = gltf.scene;
       this.scene.add(this.model);
