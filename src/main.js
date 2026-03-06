@@ -5,13 +5,27 @@ import { Network } from "./network.js";
 import Rapier from "@dimforge/rapier3d-compat";
 import { Interior } from "./entities/interior.js";
 import { InvisibleMesh } from "./entities/invisible_mesh.js";
+import { ThreePerf } from "three-perf";
+
 await Rapier.init({});
+
 
 const gravity = { x: 0, y: -20, z: 0 };
 const world = new Rapier.World(gravity);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
+
+let debugLines;
+
+const debugMaterial = new THREE.LineBasicMaterial({
+  vertexColors: true,
+});
+
+const debugGeometry = new THREE.BufferGeometry();
+
+debugLines = new THREE.LineSegments(debugGeometry, debugMaterial);
+scene.add(debugLines);
 
 const camera = new THREE.PerspectiveCamera(
   60,
@@ -20,10 +34,20 @@ const camera = new THREE.PerspectiveCamera(
   500,
 );
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const canvas = document.querySelector(".webgl");
+
+const renderer = new THREE.WebGLRenderer({
+  canvas: canvas,
+  antialias: true
+});
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-document.body.appendChild(renderer.domElement);
+
+const perf = new ThreePerf({
+  renderer,
+  domElement: document.body
+});
+
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 const dirLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -43,7 +67,8 @@ while (!modelChoice) {
 }
 const modelPath =
   modelChoice === "soldier" ? "/models/soldier2.glb" : "/models/soldier2.glb";
-const startPos = new THREE.Vector3(Math.random() * 5, 2, Math.random() * 5);
+// const startPos = new THREE.Vector3(Math.random() * 5, 2, Math.random() * 5);
+const startPos = new THREE.Vector3(19, 2, 11.3);
 
 const localChar = new Character(
   scene,
@@ -82,8 +107,45 @@ const wall2 = new InvisibleMesh(
   new THREE.Vector3(10.8, 2, 14.5),
   new THREE.Euler(0, Math.PI, 0),
 );
+const wall3 = new InvisibleMesh(
+  scene,
+  world,
+  4.9, // width
+  3, // height
+  0.7, // depth
+  new THREE.Vector3(16, 2, 11.5),
+  new THREE.Euler(0, Math.PI / 2, 0),
+);
 
+const wall4 = new InvisibleMesh(
+  scene,
+  world,
+  10.9, // width
+  3, // height
+  0.7, // depth
+  new THREE.Vector3(10.8, 2, 3.7),
+  new THREE.Euler(0, Math.PI, 0),
+);
 
+const wall5 = new InvisibleMesh(
+  scene,
+  world,
+  1.7, // width
+  3, // height
+  0.7, // depth
+  new THREE.Vector3(16.6, 2, 9.1),
+  new THREE.Euler(0, Math.PI, 0),
+);
+
+const wall6 = new InvisibleMesh(
+  scene,
+  world,
+  1.7, // width
+  3, // height
+  0.7, // depth
+  new THREE.Vector3(16.6, 2, 4.4),
+  new THREE.Euler(0, Math.PI, 0),
+);
 // Join network once connection opens
 network.ws.onopen = () => {
   network.join(
@@ -155,10 +217,26 @@ document.addEventListener("mousemove", (e) => {
 let lastTime = performance.now();
 function animate() {
   requestAnimationFrame(animate);
+  perf.begin();
   const now = performance.now();
   const dt = Math.min((now - lastTime) / 1000, 0.033);
   lastTime = now;
   world.step();
+
+  const { vertices, colors } = world.debugRender();
+
+  debugLines.geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(vertices, 3),
+  );
+
+  debugLines.geometry.setAttribute(
+    "color",
+    new THREE.BufferAttribute(colors, 4),
+  );
+
+  debugLines.geometry.computeBoundingSphere();
+
   localChar.update(dt);
   remoteChars.forEach((c) => c.update(dt));
 
@@ -191,6 +269,8 @@ function animate() {
   }
 
   renderer.render(scene, camera);
+  perf.end();
+
 }
 animate();
 

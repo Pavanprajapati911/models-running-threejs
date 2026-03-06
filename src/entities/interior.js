@@ -3,9 +3,15 @@ import Rapier from "@dimforge/rapier3d-compat";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 export class Interior {
-  constructor(scene, world, modelPath, position = new THREE.Vector3(), scale = 1) {
+  constructor(
+    scene,
+    world,
+    modelPath,
+    position = new THREE.Vector3(),
+    scale = 1,
+  ) {
     this.scene = scene;
-    this.world = world;
+    // this.world = world;
 
     const loader = new GLTFLoader();
 
@@ -13,49 +19,67 @@ export class Interior {
       this.model = gltf.scene;
 
       this.model.position.copy(position);
-       this.model.scale.setScalar(scale);
+      this.model.scale.setScalar(scale);
       this.scene.add(this.model);
 
-       this.model.updateWorldMatrix(true, true);
+      // this.model.updateWorldMatrix(true, true);
 
-      this.createColliders(this.model);
+      // this.createColliders(this.model);
     });
   }
 
   createColliders(object) {
+    object.updateMatrixWorld(true);
+
     object.traverse((child) => {
       if (!child.isMesh) return;
 
       const geometry = child.geometry;
 
-      // Ensure geometry has vertices
-      if (!geometry.attributes.position) return;
+      // compute local bounding box
+      geometry.computeBoundingBox();
 
-      const vertices = geometry.attributes.position.array;
-      const indices = geometry.index
-        ? geometry.index.array
-        : undefined;
+      const bbox = geometry.boundingBox;
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
 
-      const colliderDesc = Rapier.ColliderDesc.trimesh(
-        vertices,
-        indices
+      bbox.getSize(size);
+      bbox.getCenter(center);
+
+      // world transform
+      const worldPos = new THREE.Vector3();
+      const worldQuat = new THREE.Quaternion();
+
+      child.getWorldPosition(worldPos);
+      child.getWorldQuaternion(worldQuat);
+
+      // adjust center relative to mesh
+      const worldCenter = center
+        .clone()
+        .applyQuaternion(worldQuat)
+        .add(worldPos);
+
+      // create rigid body
+      const bodyDesc = Rapier.RigidBodyDesc.fixed().setTranslation(
+        worldCenter.x,
+        worldCenter.y,
+        worldCenter.z,
       );
 
-      const body = this.world.createRigidBody(
-        Rapier.RigidBodyDesc.fixed()
-      );
+      const body = this.world.createRigidBody(bodyDesc);
 
-      const collider = this.world.createCollider(colliderDesc, body);
+      const colliderDesc = Rapier.ColliderDesc.cuboid(
+        size.x / 2,
+        size.y / 2,
+        size.z / 2,
+      ).setRotation({
+        x: worldQuat.x,
+        y: worldQuat.y,
+        z: worldQuat.z,
+        w: worldQuat.w,
+      });
 
-      // Apply mesh world transform to collider
-      const pos = new THREE.Vector3();
-      const quat = new THREE.Quaternion();
-
-      child.getWorldPosition(pos);
-      child.getWorldQuaternion(quat);
-
-      body.setTranslation(pos, true);
-      body.setRotation(quat, true);
+      this.world.createCollider(colliderDesc, body);
     });
   }
 }
