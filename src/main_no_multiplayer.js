@@ -142,7 +142,7 @@ const localChar = new Character(
 const ROOM_MODEL = "/models/room.glb";
 
 const gridCols = 5;     // width
-const gridRows = 1;     // depth
+const gridRows = 2;     // depth
 const spacing = 20;     // distance between rooms
 
 const startX = 10;
