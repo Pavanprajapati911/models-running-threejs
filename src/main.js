@@ -88,6 +88,34 @@ const interior = new Interior(
   2,
 );
 
+const interior2 = new Interior(
+  scene,
+  world,
+  "/models/room.glb",
+  new THREE.Vector3(10, 0, 20),
+  2,
+);
+
+const interior3 = new Interior(
+  scene,
+  world,
+  "/models/room.glb",
+  new THREE.Vector3(10, 0, 30),
+  2,
+);
+const interior4 = new Interior(
+  scene,
+  world,
+  "/models/room.glb",
+  new THREE.Vector3(10, 0, 0),
+  2,
+);
+
+
+
+
+
+
 const wall = new InvisibleMesh(
   scene,
   world,
@@ -240,7 +268,7 @@ function animate() {
 
   debugLines.geometry.computeBoundingSphere();
 
-  
+
   localChar.update(dt);
 
   if (localChar.model) {
