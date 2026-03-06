@@ -57,7 +57,7 @@ scene.add(dirLight);
 
 const terrain = new InfiniteTerrain(scene, world);
 
-const network = new Network("ws://192.168.1.7:3000");
+// const network = new Network("ws://192.168.1.7:3000");
 
 // Choose character
 let modelChoice = null;
@@ -147,57 +147,57 @@ const wall6 = new InvisibleMesh(
   new THREE.Euler(0, Math.PI, 0),
 );
 // Join network once connection opens
-network.ws.onopen = () => {
-  network.join(
-    modelPath,
-    localChar.position.toArray(),
-    localChar.model?.rotation.toArray() || [0, 0, 0],
-  );
-};
+// network.ws.onopen = () => {
+//   network.join(
+//     modelPath,
+//     localChar.position.toArray(),
+//     localChar.model?.rotation.toArray() || [0, 0, 0],
+//   );
+// };
 
-// Handle updates from server
-network.onUpdate = (chars) => {
-  chars.forEach((c) => {
-    if (c.id === network.id) return;
+// // Handle updates from server
+// network.onUpdate = (chars) => {
+//   chars.forEach((c) => {
+//     if (c.id === network.id) return;
 
-    let char = remoteChars.get(c.id);
-    if (!char) {
-      char = new Character(
-        scene,
-        terrain,
-        world,
-        c.model,
-        false,
-        new THREE.Vector3().fromArray(c.position),
-      );
-      remoteChars.set(c.id, char);
-    }
-    char.setRemoteState(c.position, c.rotation, c.anim);
-  });
-};
+//     let char = remoteChars.get(c.id);
+//     if (!char) {
+//       char = new Character(
+//         scene,
+//         terrain,
+//         world,
+//         c.model,
+//         false,
+//         new THREE.Vector3().fromArray(c.position),
+//       );
+//       remoteChars.set(c.id, char);
+//     }
+//     char.setRemoteState(c.position, c.rotation, c.anim);
+//   });
+// };
 
-// Remove characters on leave
-network.onLeave = (id) => {
-  const char = remoteChars.get(id);
-  if (char && char.model) scene.remove(char.model);
-  remoteChars.delete(id);
-};
+// // Remove characters on leave
+// network.onLeave = (id) => {
+//   const char = remoteChars.get(id);
+//   if (char && char.model) scene.remove(char.model);
+//   remoteChars.delete(id);
+// };
 
-network.onDamage = ({ targetId, health }) => {
-  if (targetId === network.id) {
-    localChar.health = health;
-    localChar.updateHealthBar();
-    localChar.spawnBloodEffect();
-    return;
-  }
+// network.onDamage = ({ targetId, health }) => {
+//   if (targetId === network.id) {
+//     localChar.health = health;
+//     localChar.updateHealthBar();
+//     localChar.spawnBloodEffect();
+//     return;
+//   }
 
-  const target = remoteChars.get(targetId);
-  if (target) {
-    target.health = health;
-    target.updateHealthBar();
-    target.spawnBloodEffect();
-  }
-};
+//   const target = remoteChars.get(targetId);
+//   if (target) {
+//     target.health = health;
+//     target.updateHealthBar();
+//     target.spawnBloodEffect();
+//   }
+// };
 
 // Camera
 let yaw = 0,
@@ -215,63 +215,118 @@ document.addEventListener("mousemove", (e) => {
 
 // Animate
 let lastTime = performance.now();
+
 function animate() {
   requestAnimationFrame(animate);
   perf.begin();
+
   const now = performance.now();
   const dt = Math.min((now - lastTime) / 1000, 0.033);
   lastTime = now;
+
   world.step();
 
   const { vertices, colors } = world.debugRender();
 
   debugLines.geometry.setAttribute(
     "position",
-    new THREE.BufferAttribute(vertices, 3),
+    new THREE.BufferAttribute(vertices, 3)
   );
 
   debugLines.geometry.setAttribute(
     "color",
-    new THREE.BufferAttribute(colors, 4),
+    new THREE.BufferAttribute(colors, 4)
   );
 
   debugLines.geometry.computeBoundingSphere();
 
   localChar.update(dt);
-  remoteChars.forEach((c) => c.update(dt));
-
-  if (localChar.model && network.ws.readyState === WebSocket.OPEN) {
-    network.sendState(
-      localChar.model.position.toArray(),
-      localChar.model.rotation.toArray(),
-      localChar.currentAnim,
-    );
-  }
 
   // Camera follow
   if (localChar.model) {
     const camDist = 5;
     const camHeight = 3;
+
     const camDir = new THREE.Vector3(
       Math.sin(yaw) * Math.cos(pitch),
       Math.sin(pitch),
-      Math.cos(yaw) * Math.cos(pitch),
+      Math.cos(yaw) * Math.cos(pitch)
     );
+
     camera.position
       .copy(localChar.model.position)
       .addScaledVector(camDir, camDist);
+
     camera.position.y += camHeight;
+
     camera.lookAt(
       localChar.model.position.x,
       localChar.model.position.y + 1.5,
-      localChar.model.position.z,
+      localChar.model.position.z
     );
   }
 
   renderer.render(scene, camera);
   perf.end();
-
 }
+
+// function animate() {
+//   requestAnimationFrame(animate);
+//   perf.begin();
+//   const now = performance.now();
+//   const dt = Math.min((now - lastTime) / 1000, 0.033);
+//   lastTime = now;
+//   world.step();
+
+//   const { vertices, colors } = world.debugRender();
+
+//   debugLines.geometry.setAttribute(
+//     "position",
+//     new THREE.BufferAttribute(vertices, 3),
+//   );
+
+//   debugLines.geometry.setAttribute(
+//     "color",
+//     new THREE.BufferAttribute(colors, 4),
+//   );
+
+//   debugLines.geometry.computeBoundingSphere();
+
+//   localChar.update(dt);
+//   // remoteChars.forEach((c) => c.update(dt));
+
+//   // if (localChar.model && network.ws.readyState === WebSocket.OPEN) {
+//   //   network.sendState(
+//   //     localChar.model.position.toArray(),
+//   //     localChar.model.rotation.toArray(),
+//   //     localChar.currentAnim,
+//   //   );
+//   // }
+
+//   // Camera follow
+//   if (localChar.model) {
+//     const camDist = 5;
+//     const camHeight = 3;
+//     const camDir = new THREE.Vector3(
+//       Math.sin(yaw) * Math.cos(pitch),
+//       Math.sin(pitch),
+//       Math.cos(yaw) * Math.cos(pitch),
+//     );
+//     camera.position
+//       .copy(localChar.model.position)
+//       .addScaledVector(camDir, camDist);
+//     camera.position.y += camHeight;
+//     camera.lookAt(
+//       localChar.model.position.x,
+//       localChar.model.position.y + 1.5,
+//       localChar.model.position.z,
+//     );
+//   }
+
+//   renderer.render(scene, camera);
+//   perf.end();
+
+// }
 animate();
 
 window.addEventListener("resize", () => {
