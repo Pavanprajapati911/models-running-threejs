@@ -141,9 +141,9 @@ const localChar = new Character(
 
 const ROOM_MODEL = "/models/room.glb";
 
-const gridCols = 10;     // width
-const gridRows = 3;     // depth
-const spacing = 10;     // distance between rooms
+const gridCols = 5;     // width
+const gridRows = 2;     // depth
+const spacing = 20;     // distance between rooms
 
 const startX = 10;
 const startZ = 10;
