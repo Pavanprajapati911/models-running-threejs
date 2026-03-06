@@ -240,6 +240,7 @@ function animate() {
 
   debugLines.geometry.computeBoundingSphere();
 
+  
   localChar.update(dt);
 
   if (localChar.model) {
