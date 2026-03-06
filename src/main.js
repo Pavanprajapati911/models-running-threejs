@@ -242,7 +242,6 @@ function animate() {
 
   localChar.update(dt);
 
-  // Camera follow
   if (localChar.model) {
     const camDist = 5;
     const camHeight = 3;
