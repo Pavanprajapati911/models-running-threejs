@@ -7,7 +7,9 @@ import { InvisibleMesh } from "./entities/invisible_mesh.js";
 import { ThreePerf } from "three-perf";
 
 await Rapier.init({});
-
+let lastTime = performance.now();
+let yaw = 0;
+let pitch = 0;
 /* =========================
    LOADING MANAGER
 ========================= */
@@ -133,87 +135,39 @@ const localChar = new Character(
   startPos,
   loadingManager
 );
-
 /* =========================
-   INTERIORS
+   INTERIORS (GRID SPAWN)
 ========================= */
 
-const interior = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, 10),
-  2,
-  loadingManager
-);
+const ROOM_MODEL = "/models/room.glb";
 
-const interior2 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, 20),
-  2,
-  loadingManager
-);
+const gridCols = 30;     // width
+const gridRows = 5;     // depth
+const spacing = 10;     // distance between rooms
 
-const interior3 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, 30),
-  2,
-  loadingManager
-);
+const startX = 10;
+const startZ = 10;
 
-const interior4 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, 0),
-  2,
-  loadingManager
-);
+const interiors = [];
 
-const interior6 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, -10),
-  2,
-  loadingManager
-);
-const interior7 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, -20),
-  2,
-  loadingManager
-);
-const interior8 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, -30),
-  2,
-  loadingManager
-);
-const interior9 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, -40),
-  2,
-  loadingManager
-);
-const interior10 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, -50),
-  2,
-  loadingManager
-);
+for (let x = 0; x < gridCols; x++) {
+  for (let z = 0; z < gridRows; z++) {
+
+    const posX = startX + x * spacing;
+    const posZ = startZ + z * spacing;
+
+    const interior = new Interior(
+      scene,
+      world,
+      ROOM_MODEL,
+      new THREE.Vector3(posX, 0, posZ),
+      2,
+      loadingManager
+    );
+
+    interiors.push(interior);
+  }
+}
 
 
 /* =========================
@@ -284,8 +238,7 @@ new InvisibleMesh(
    CAMERA CONTROL
 ========================= */
 
-let yaw = 0;
-let pitch = 0;
+
 
 const mouseSensitivity = 0.002;
 
@@ -306,7 +259,6 @@ document.addEventListener("mousemove", (e) => {
    GAME LOOP
 ========================= */
 
-let lastTime = performance.now();
 
 function animate() {
   requestAnimationFrame(animate);

@@ -3,6 +3,9 @@ import Rapier from "@dimforge/rapier3d-compat";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 export class Interior {
+  static cache = new Map(); // model cache
+  static loader = null;
+
   constructor(
     scene,
     world,
@@ -12,21 +15,46 @@ export class Interior {
     loadingManager
   ) {
     this.scene = scene;
-    // this.world = world;
+    this.world = world;
 
-    const loader = new GLTFLoader(loadingManager);
+    if (!Interior.loader) {
+      Interior.loader = new GLTFLoader(loadingManager);
+    }
 
-    loader.load(modelPath, (gltf) => {
-      this.model = gltf.scene;
+    // MODEL ALREADY LOADED
+    if (Interior.cache.has(modelPath)) {
+      const original = Interior.cache.get(modelPath);
+      this.createInstance(original, position, scale);
+      return;
+    }
 
-      this.model.position.copy(position);
-      this.model.scale.setScalar(scale);
-      this.scene.add(this.model);
+    // LOAD MODEL FIRST TIME
+    Interior.loader.load(modelPath, (gltf) => {
+      const original = gltf.scene;
 
-      // this.model.updateWorldMatrix(true, true);
+      Interior.cache.set(modelPath, original);
 
-      // this.createColliders(this.model);
+      this.createInstance(original, position, scale);
     });
+  }
+
+  createInstance(original, position, scale) {
+    const model = original.clone(true);
+
+    model.position.copy(position);
+    model.scale.setScalar(scale);
+
+    model.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    this.scene.add(model);
+
+    // optional physics
+    // this.createColliders(model);
   }
 
   createColliders(object) {
@@ -37,7 +65,6 @@ export class Interior {
 
       const geometry = child.geometry;
 
-      // compute local bounding box
       geometry.computeBoundingBox();
 
       const bbox = geometry.boundingBox;
@@ -47,24 +74,21 @@ export class Interior {
       bbox.getSize(size);
       bbox.getCenter(center);
 
-      // world transform
       const worldPos = new THREE.Vector3();
       const worldQuat = new THREE.Quaternion();
 
       child.getWorldPosition(worldPos);
       child.getWorldQuaternion(worldQuat);
 
-      // adjust center relative to mesh
       const worldCenter = center
         .clone()
         .applyQuaternion(worldQuat)
         .add(worldPos);
 
-      // create rigid body
       const bodyDesc = Rapier.RigidBodyDesc.fixed().setTranslation(
         worldCenter.x,
         worldCenter.y,
-        worldCenter.z,
+        worldCenter.z
       );
 
       const body = this.world.createRigidBody(bodyDesc);
@@ -72,7 +96,7 @@ export class Interior {
       const colliderDesc = Rapier.ColliderDesc.cuboid(
         size.x / 2,
         size.y / 2,
-        size.z / 2,
+        size.z / 2
       ).setRotation({
         x: worldQuat.x,
         y: worldQuat.y,
