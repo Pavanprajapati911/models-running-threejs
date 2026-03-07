@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
+    "simplex-noise": "^4.0.3",
     "stats.js": "^0.17.0",
     "three": "^0.182.0",
     "three-perf": "^1.0.11",

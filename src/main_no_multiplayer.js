@@ -5,6 +5,8 @@ import Rapier from "@dimforge/rapier3d-compat";
 import { Interior } from "./entities/interior.js";
 import { InvisibleMesh } from "./entities/invisible_mesh.js";
 import { ThreePerf } from "three-perf";
+import { FogSystem } from "./environment/fog-system.js";
+import { StealthMap } from "./environment/stealth-map.js";
 
 await Rapier.init({});
 let lastTime = performance.now();
@@ -41,7 +43,6 @@ const world = new Rapier.World(gravity);
 ========================= */
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
 
 /* =========================
    DEBUG PHYSICS
@@ -99,7 +100,14 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 const dirLight = new THREE.DirectionalLight(0xffffff, 1);
 dirLight.position.set(10, 20, 10);
 dirLight.castShadow = true;
-
+dirLight.shadow.mapSize.width = 2048;
+dirLight.shadow.mapSize.height = 2048;
+dirLight.shadow.camera.near = 1;
+dirLight.shadow.camera.far = 200;
+dirLight.shadow.camera.left = -50;
+dirLight.shadow.camera.right = 50;
+dirLight.shadow.camera.top = 50;
+dirLight.shadow.camera.bottom = -50;
 scene.add(dirLight);
 
 /* =========================
@@ -107,7 +115,16 @@ scene.add(dirLight);
 ========================= */
 
 const terrain = new InfiniteTerrain(scene, world);
+const stealthMap = new StealthMap(scene, world, terrain,{
+  mapSize: 45,
+  wallHeight: 6,
 
+  rockCount: 35,
+  rockMin: 0.7,
+  rockMax: 2.2,
+
+  coverWallCount: 12,
+});
 /* =========================
    CHARACTER
 ========================= */
@@ -124,7 +141,7 @@ const modelPath =
     ? "/models/soldier2.glb"
     : "/models/soldier2.glb";
 
-const startPos = new THREE.Vector3(19, 2, 11.3);
+const startPos = new THREE.Vector3(19, 2, 21.3);
 
 const localChar = new Character(
   scene,
@@ -135,104 +152,9 @@ const localChar = new Character(
   startPos,
   loadingManager
 );
-/* =========================
-   INTERIORS (GRID SPAWN)
-========================= */
 
-const ROOM_MODEL = "/models/room.glb";
+const fogSystem = new FogSystem(scene, localChar);
 
-const gridCols = 5;     // width
-const gridRows = 4;     // depth
-const spacing = 20;     // distance between rooms
-
-const startX = 10;
-const startZ = 10;
-
-const interiors = [];
-
-for (let x = 0; x < gridCols; x++) {
-  for (let z = 0; z < gridRows; z++) {
-
-    const posX = startX + x * spacing;
-    const posZ = startZ + z * spacing;
-
-    const interior = new Interior(
-      scene,
-      world,
-      ROOM_MODEL,
-      new THREE.Vector3(posX, 0, posZ),
-      2,
-      loadingManager
-    );
-
-    interiors.push(interior);
-  }
-}
-
-
-/* =========================
-   INVISIBLE COLLIDER WALLS
-========================= */
-
-new InvisibleMesh(
-  scene,
-  world,
-  10.9,
-  3,
-  0.7,
-  new THREE.Vector3(5.1, 2, 9.1),
-  new THREE.Euler(0, Math.PI / 2, 0),
-);
-
-new InvisibleMesh(
-  scene,
-  world,
-  10.9,
-  3,
-  0.7,
-  new THREE.Vector3(10.8, 2, 14.5),
-  new THREE.Euler(0, Math.PI, 0),
-);
-
-new InvisibleMesh(
-  scene,
-  world,
-  4.9,
-  3,
-  0.7,
-  new THREE.Vector3(16, 2, 11.5),
-  new THREE.Euler(0, Math.PI / 2, 0),
-);
-
-new InvisibleMesh(
-  scene,
-  world,
-  10.9,
-  3,
-  0.7,
-  new THREE.Vector3(10.8, 2, 3.7),
-  new THREE.Euler(0, Math.PI, 0),
-);
-
-new InvisibleMesh(
-  scene,
-  world,
-  1.7,
-  3,
-  0.7,
-  new THREE.Vector3(16.6, 2, 9.1),
-  new THREE.Euler(0, Math.PI, 0),
-);
-
-new InvisibleMesh(
-  scene,
-  world,
-  1.7,
-  3,
-  0.7,
-  new THREE.Vector3(16.6, 2, 4.4),
-  new THREE.Euler(0, Math.PI, 0),
-);
 
 /* =========================
    CAMERA CONTROL
@@ -273,23 +195,24 @@ function animate() {
 
   const { vertices, colors } = world.debugRender();
 
-  debugLines.geometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(vertices, 3)
-  );
+  // debugLines.geometry.setAttribute(
+  //   "position",
+  //   new THREE.BufferAttribute(vertices, 3)
+  // );
 
-  debugLines.geometry.setAttribute(
-    "color",
-    new THREE.BufferAttribute(colors, 4)
-  );
+  // debugLines.geometry.setAttribute(
+  //   "color",
+  //   new THREE.BufferAttribute(colors, 4)
+  // );
 
-  debugLines.geometry.computeBoundingSphere();
+  // debugLines.geometry.computeBoundingSphere();
 
   localChar.update(dt);
+  fogSystem.update(dt);
 
   if (localChar.model) {
-    const camDist = 5;
-    const camHeight = 3;
+    const camDist = 1.5;
+    const camHeight = 1.6;
 
     const camDir = new THREE.Vector3(
       Math.sin(yaw) * Math.cos(pitch),
