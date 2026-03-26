@@ -41,6 +41,9 @@ const envParams = {
     lodDistNear: 60.0,
     lodDistMid: 120.0,
     heightMult: 8.0,
+    grassTextureStrength: 1.0,
+    dirtTextureStrength: 1.0,
+    pathStrength: 1.0,
   },
   lowland: {
     baseFreq: 0.003,
@@ -50,6 +53,44 @@ const envParams = {
     hillAmp: 0.3,
     detailAmp: 0.05
   },
+  biome: {
+    density: 0.7,
+    scale: 0.01,
+    contrast: 1.0,
+  },
+  grass: {
+    density: 600,
+    scaleMin: 0.8,
+    scaleMax: 1.3,
+    patchiness: 0.5,
+    fadeDistance: 150,
+  },
+  bush: {
+    density: 60,
+    clusterSize: 5,
+    noiseScale: 0.05,
+  },
+  tree: {
+    density: 40,
+    clusterSize: 10,
+    noiseScale: 0.01,
+    palmRatio: 0.5,
+    deadRatio: 0.1,
+  },
+  rock: {
+    density: 12,
+    scaleMin: 0.5,
+    scaleMax: 3.0,
+  },
+  performance: {
+    enableLOD: true,
+    lodFar: 200,
+    maxInstances: 50000,
+  },
+  random: {
+    seed: 12345,
+    strength: 1.0,
+  }
 
 };
 
@@ -293,26 +334,53 @@ const chunkManager = new ChunkManager(scene, world, camera, createNoise2D(), env
 const terrain = chunkManager; // alias for compatibility if needed
 
 
-const worldFolder = gui.addFolder("🌍 World (Chunks)");
-worldFolder.add(envParams.terrain, "chunkSize", 20, 100, 5).name("Chunk Size");
-worldFolder.add(envParams.terrain, "renderDist", 1, 6, 1).name("Render Distance");
-worldFolder.add(envParams.terrain, "lodDistNear", 20, 200, 10).name("Near LOD Dist");
+const biomeFolder = gui.addFolder("🌍 Biome Settings");
+biomeFolder.add(envParams.biome, "density", 0, 1).name("Biome Density");
+biomeFolder.add(envParams.biome, "scale", 0.001, 0.02).name("Biome Scale");
+biomeFolder.add(envParams.biome, "contrast", 0, 2).name("Biome Contrast");
 
-const lowlandFolder = gui.addFolder("🌴 Lowland Terrain");
-lowlandFolder.add(envParams.lowland, "baseFreq", 0.0001, 0.01, 0.0001).name("Base Freq");
-lowlandFolder.add(envParams.lowland, "hillFreq", 0.001, 0.05, 0.001).name("Hill Freq");
-lowlandFolder.add(envParams.lowland, "detailFreq", 0.01, 0.2, 0.01).name("Detail Freq");
-lowlandFolder.add(envParams.lowland, "baseAmp", 0, 2, 0.1).name("Base Amp");
-lowlandFolder.add(envParams.lowland, "hillAmp", 0, 1, 0.1).name("Hill Amp");
-lowlandFolder.add(envParams.terrain, "heightMult", 1, 50, 1).name("Max Height");
+const grassFolder = gui.addFolder("🌱 Grass Settings");
+grassFolder.add(envParams.grass, "density", 0, 2000, 10).name("Grass Density");
+grassFolder.add(envParams.grass, "scaleMin", 0.5, 1.5).name("Scale Min");
+grassFolder.add(envParams.grass, "scaleMax", 0.5, 2.0).name("Scale Max");
+grassFolder.add(envParams.grass, "patchiness", 0, 1).name("Patchiness");
+grassFolder.add(envParams.grass, "fadeDistance", 10, 500).name("Fade Dist");
 
-const terrainFolder = gui.addFolder("🎨 Appearance");
-terrainFolder.add(envParams.terrain, "texScale", 1, 50, 0.1).name("Texture Scale");
-terrainFolder.add(envParams.terrain, "intensity", 0, 5, 0.1).name("Intensity");
+const bushFolder = gui.addFolder("🌿 Bush Settings");
+bushFolder.add(envParams.bush, "density", 0, 200, 1).name("Bush Density");
+bushFolder.add(envParams.bush, "clusterSize", 1, 10).name("Cluster Size");
+bushFolder.add(envParams.bush, "noiseScale", 0.01, 0.2).name("Noise Scale");
 
-terrainFolder.add(envParams.terrain, "specular", 0, 5, 0.1).onChange((v) => {
-  terrain.mesh.material.uniforms.uSpecularStrength.value = v;
-});
+const treeFolder = gui.addFolder("🌴 Tree Settings");
+treeFolder.add(envParams.tree, "density", 0, 100, 1).name("Tree Density");
+treeFolder.add(envParams.tree, "clusterSize", 1, 20).name("Cluster Size");
+treeFolder.add(envParams.tree, "noiseScale", 0.001, 0.02).name("Noise Scale");
+treeFolder.add(envParams.tree, "palmRatio", 0, 1).name("Palm vs Jungle");
+treeFolder.add(envParams.tree, "deadRatio", 0, 0.3).name("Dead Tree Ratio");
+
+const rockFolder = gui.addFolder("🪨 Rock Settings");
+rockFolder.add(envParams.rock, "density", 0, 50, 1).name("Rock Density");
+rockFolder.add(envParams.rock, "scaleMin", 0.5, 2.0).name("Scale Min");
+rockFolder.add(envParams.rock, "scaleMax", 1.0, 5.0).name("Scale Max");
+
+const terrainTexFolder = gui.addFolder("🎨 Terrain Textures");
+terrainTexFolder.add(envParams.terrain, "texScale", 1, 50, 0.1).name("Texture Scale");
+terrainTexFolder.add(envParams.terrain, "grassTextureStrength", 0, 2).name("Grass Strength");
+terrainTexFolder.add(envParams.terrain, "dirtTextureStrength", 0, 2).name("Dirt Strength");
+terrainTexFolder.add(envParams.terrain, "pathStrength", 0, 2).name("Path Strength");
+terrainTexFolder.add(envParams.terrain, "intensity", 0, 5, 0.1).name("Light Intensity");
+
+const perfFolder = gui.addFolder("🎮 Performance");
+perfFolder.add(envParams.performance, "enableLOD").name("Enable LOD");
+perfFolder.add(envParams.terrain, "lodDistNear", 20, 200, 10).name("LOD Near");
+perfFolder.add(envParams.performance, "lodFar", 50, 500, 10).name("LOD Far");
+perfFolder.add(envParams.performance, "maxInstances", 1000, 100000, 1000).name("Max Instances");
+
+const randomFolder = gui.addFolder("🎲 Randomness");
+randomFolder.add(envParams.random, "seed", 0, 100000, 1).name("Global Seed");
+randomFolder.add(envParams.random, "strength", 0, 1).name("Rand Strength");
+
+gui.add({ regenerate: () => chunkManager.refreshChunks() }, "regenerate").name("🔄 Regenerate World");
 
 const fogFolder = gui.addFolder("🌫️ Fog");
 fogFolder.add(envParams.fog, "near", 0, 100, 1).onChange((v) => {

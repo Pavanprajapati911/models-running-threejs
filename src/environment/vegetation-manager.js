@@ -1,0 +1,266 @@
+import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { createNoise2D } from "simplex-noise";
+
+export class VegetationManager {
+  constructor(scene, calculateHeight, envParams) {
+    this.scene = scene;
+    this.calculateHeight = calculateHeight;
+    this.envParams = envParams;
+    this.loader = new GLTFLoader();
+    this.models = new Map();
+    this.noise2D = createNoise2D();
+    
+    // Noise for biomes and clusters
+    this.biomeNoise = createNoise2D();
+    this.pathNoise = createNoise2D();
+    this.clusterNoise = createNoise2D();
+
+    this.isLoaded = false;
+    this.onLoadCallbacks = [];
+  }
+
+  async loadModels() {
+    const assetList = {
+      grass: [
+        "/models/environment/grass/grass_one.glb",
+        "/models/environment/grass/grass_two.glb",
+        "/models/environment/grass/grass_three.glb",
+        "/models/environment/grass/grass_four.glb",
+        "/models/environment/grass/grass_vegetation.glb"
+      ],
+      foliage: [
+        "/models/environment/grass/grass_foliage_one.glb",
+        "/models/environment/grass/grass_foliage_two.glb",
+        "/models/environment/grass/grass_foliage_three.glb",
+        "/models/environment/grass/grass_foliage_four.glb",
+        "/models/environment/grass/foliage_flower_one.glb",
+        "/models/environment/grass/foliage_flower_two.glb"
+      ],
+      bushes: [
+        "/models/environment/bushes/bush_one.glb",
+        "/models/environment/bushes/bush_two.glb",
+        "/models/environment/bushes/bush_three.glb"
+      ],
+      palms: [
+        "/models/environment/palm tress/coconut_tree.glb",
+        "/models/environment/palm tress/palm_tree_big.glb",
+        "/models/environment/palm tress/palm_tree_medium.glb",
+        "/models/environment/palm tress/palm_tree_small.glb"
+      ],
+      jungleTrees: [
+        "/models/environment/low_poly_trees/low_poly_tree_one.glb",
+        "/models/environment/low_poly_trees/low_poly_tree_two.glb",
+        "/models/environment/low_poly_trees/low_poly_tree_three.glb",
+        "/models/environment/low_poly_trees_more/low_poly_more_tree_one.glb",
+        "/models/environment/low_poly_trees_more/low_poly_more_tree_two.glb",
+        "/models/environment/low_poly_trees_more/low_poly_more_tree_three.glb"
+      ],
+      deadTrees: [
+        "/models/environment/No leaves tree/no_leaves_tree_one.glb",
+        "/models/environment/No leaves tree/no_leaves_tree_two.glb",
+        "/models/environment/No leaves tree/no_leaves_tree_three.glb",
+        "/models/environment/No leaves tree/no_leaves_tree_four.glb",
+        "/models/environment/No leaves tree/no_leaves_tree_five.glb",
+        "/models/environment/No leaves tree/no_leaves_tree_six.glb",
+        "/models/environment/No leaves tree/no_leaves_tree_seven.glb",
+        "/models/environment/No leaves tree/no_leaves_tree_eight.glb",
+        "/models/environment/No leaves tree/no_leaves_tree_nine.glb",
+        "/models/environment/No leaves tree/no_leaves_tree_ten.glb"
+      ],
+      rocks: [
+        "/models/environment/rocks/giant_rocks_big_one.glb",
+        "/models/environment/rocks/giant_rocks_big_two.glb",
+        "/models/environment/rocks/giant_rocks_big_three.glb",
+        "/models/environment/rocks/giant_rocks_medium_one.glb",
+        "/models/environment/rocks/giant_rocks_medium_two.glb",
+        "/models/environment/rocks/giant_rocks_medium_three.glb"
+      ]
+    };
+
+    const loadPromises = [];
+
+    for (const [category, paths] of Object.entries(assetList)) {
+      paths.forEach(path => {
+        loadPromises.push(this.loadModel(category, path));
+      });
+    }
+
+    await Promise.all(loadPromises);
+    this.isLoaded = true;
+    this.onLoadCallbacks.forEach(cb => cb());
+  }
+
+  loadModel(category, path) {
+    return new Promise((resolve) => {
+      this.loader.load(path, (gltf) => {
+        const model = gltf.scene;
+        model.traverse(child => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        
+        if (!this.models.has(category)) {
+          this.models.set(category, []);
+        }
+        this.models.get(category).push({
+            geometry: model.children[0].geometry,
+            material: model.children[0].material,
+            mesh: model.children[0]
+        });
+        resolve();
+      }, undefined, (err) => {
+          console.error(`Error loading model ${path}:`, err);
+          resolve(); // Resolve anyway to not block
+      });
+    });
+  }
+
+  onLoad(cb) {
+    if (this.isLoaded) cb();
+    else this.onLoadCallbacks.push(cb);
+  }
+
+  // Populate a chunk with vegetation
+  getVegetationForChunk(chunkX, chunkZ, chunkSize) {
+    if (!this.isLoaded) return [];
+
+    const instancedMeshes = [];
+    const p = this.envParams;
+    
+    // Helper to get biome at position
+    const getBiome = (x, z) => {
+        const offset = p.random.seed;
+        const n = this.biomeNoise((x + offset) * p.biome.scale, (z + offset) * p.biome.scale);
+        const biome = THREE.MathUtils.smoothstep(n, -1, 1); // 0 to 1
+        return Math.pow(biome, p.biome.contrast);
+    };
+
+    const getPath = (x, z) => {
+        const offset = p.random.seed * 2.0;
+        const n = this.pathNoise((x + offset) * 0.05, (z + offset) * 0.05);
+        return THREE.MathUtils.smoothstep(n, 0.35, 0.45); // 0 to 1 (1 is path)
+    };
+
+    // 1. Spawning Grass
+    const grassModels = this.models.get("grass").concat(this.models.get("foliage"));
+    instancedMeshes.push(...this.createInstances("grass_layer", grassModels, p.grass.density, chunkX, chunkZ, chunkSize, (x, z) => {
+        const path = getPath(x, z);
+        if (path > 0.4) return 0;
+        
+        // Patchiness
+        const patch = this.noise2D(x * 0.1, z * 0.1) * 0.5 + 0.5;
+        if (patch < (1.0 - p.grass.patchiness)) return 0;
+
+        return 0.9;
+    }, p.grass.scaleMin, p.grass.scaleMax));
+
+    // 2. Spawning Bushes
+    const bushes = this.models.get("bushes");
+    instancedMeshes.push(...this.createInstances("bush_layer", bushes, p.bush.density, chunkX, chunkZ, chunkSize, (x, z) => {
+        const biome = getBiome(x, z);
+        const path = getPath(x, z);
+        if (path > 0.4) return 0;
+        
+        const cluster = this.clusterNoise(x * p.bush.noiseScale, z * p.bush.noiseScale) * 0.5 + 0.5;
+        const jungleDensity = p.biome.density;
+        
+        return cluster > (1.0 - jungleDensity * biome) ? 1.0 : 0.05;
+    }, 0.9, 1.2));
+
+    // 3. Spawning Trees
+    const palms = this.models.get("palms");
+    const jungle = this.models.get("jungleTrees");
+    const dead = this.models.get("deadTrees");
+
+    instancedMeshes.push(...this.createInstances("tree_layer", [], p.tree.density, chunkX, chunkZ, chunkSize, (x, z) => {
+        const biome = getBiome(x, z);
+        const path = getPath(x, z);
+        if (path > 0.3) return 0;
+
+        const cluster = this.clusterNoise(x * p.tree.noiseScale, z * p.tree.noiseScale) * 0.5 + 0.5;
+        return cluster > (1.0 - p.biome.density * biome) ? 1.0 : 0.0;
+    }, 1.0, 2.5, true));
+
+    // 4. Spawning Rocks
+    const rocks = this.models.get("rocks");
+    instancedMeshes.push(...this.createInstances("rock_layer", rocks, p.rock.density, chunkX, chunkZ, chunkSize, (x, z) => {
+        const path = getPath(x, z);
+        return (path > 0.3 && path < 0.7) ? 0.8 : 0.1;
+    }, p.rock.scaleMin, p.rock.scaleMax, false, -0.5));
+
+    return instancedMeshes;
+  }
+
+  createInstances(name, modelDataList, count, chunkX, chunkZ, chunkSize, densityFunc, minScale, maxScale, isTree = false, yOffset = 0) {
+    const meshes = [];
+    
+    // Group by unique geometry/material to create InstancedMeshes
+    const groups = new Map();
+    
+    for (let i = 0; i < count; i++) {
+        const rx = Math.random() * chunkSize - chunkSize/2;
+        const rz = Math.random() * chunkSize - chunkSize/2;
+        const x = chunkX + rx;
+        const z = chunkZ + rz;
+        
+        const density = densityFunc(x, z);
+        if (Math.random() > density) continue;
+        
+        const y = this.calculateHeight(x, z);
+        
+        // Pick a model
+        let modelData;
+        const p = this.envParams;
+        if (isTree) {
+            const biome = THREE.MathUtils.smoothstep(this.biomeNoise(x * p.biome.scale, z * p.biome.scale), -1, 1);
+            const rand = Math.random();
+            const deadTrees = this.models.get("deadTrees");
+            const jungleTrees = this.models.get("jungleTrees");
+            const palmTrees = this.models.get("palms");
+
+            if (rand < p.tree.deadRatio) {
+                modelData = deadTrees[Math.floor(Math.random() * deadTrees.length)];
+            } else {
+                const isPalm = Math.random() < p.tree.palmRatio;
+                if (isPalm) {
+                    modelData = palmTrees[Math.floor(Math.random() * palmTrees.length)];
+                } else {
+                    modelData = jungleTrees[Math.floor(Math.random() * jungleTrees.length)];
+                }
+            }
+        } else {
+            modelData = modelDataList[Math.floor(Math.random() * modelDataList.length)];
+        }
+        
+        if (!modelData) continue;
+
+        if (!groups.has(modelData)) {
+            groups.set(modelData, []);
+        }
+        
+        const matrix = new THREE.Matrix4();
+        const position = new THREE.Vector3(rx, y + yOffset, rz);
+        const rotation = new THREE.Euler(0, Math.random() * Math.PI * 2, 0);
+        const scaleVal = minScale + Math.random() * (maxScale - minScale);
+        const scale = new THREE.Vector3(scaleVal, scaleVal, scaleVal);
+        
+        matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
+        groups.get(modelData).push(matrix);
+    }
+    
+    for (const [modelData, matrices] of groups) {
+        const imesh = new THREE.InstancedMesh(modelData.geometry, modelData.material, matrices.length);
+        imesh.castShadow = true;
+        imesh.receiveShadow = true;
+        for (let i = 0; i < matrices.length; i++) {
+            imesh.setMatrixAt(i, matrices[i]);
+        }
+        meshes.push(imesh);
+    }
+    
+    return meshes;
+  }
+}

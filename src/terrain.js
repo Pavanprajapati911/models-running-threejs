@@ -3,11 +3,12 @@ import * as THREE from "three";
 import Rapier from "@dimforge/rapier3d-compat";
 import vertexShader from "./shaders/terrain_vert.glsl?raw";
 import fragmentShader from "./shaders/terrain_frag.glsl?raw";
+import { VegetationManager } from "./environment/vegetation-manager.js";
 
 
 
 export class TerrainChunk {
-  constructor(x, z, size, segments, scene, world, envUniforms, envParams, calculateHeight) {
+  constructor(x, z, size, segments, scene, world, envUniforms, envParams, calculateHeight, vegManager) {
     this.x = x;
     this.z = z;
     this.size = size;
@@ -17,6 +18,8 @@ export class TerrainChunk {
     this.envUniforms = envUniforms;
     this.envParams = envParams;
     this.calculateHeight = calculateHeight;
+    this.vegManager = vegManager;
+    this.vegetation = [];
 
     this.mesh = null;
     this.collider = null;
@@ -47,8 +50,12 @@ export class TerrainChunk {
 
     const material = new THREE.ShaderMaterial({
       uniforms: {
-        grassTex: this.envParams.textures.grass,
-        dirtTex: this.envParams.textures.dirt,
+        mossyGrassTex: this.envParams.textures.mossyGrass,
+        wildGrassTex: this.envParams.textures.wildGrass,
+        forestFloorTex: this.envParams.textures.forestFloor,
+        soilGroundTex: this.envParams.textures.soilGround,
+        dirtGroundTex: this.envParams.textures.dirtGround,
+        forestPathTex: this.envParams.textures.forestPath,
         rockTex: this.envParams.textures.rock,
         uTextureScale: { value: this.envParams.terrain.texScale },
         uLightingIntensity: { value: this.envParams.terrain.intensity },
@@ -59,6 +66,10 @@ export class TerrainChunk {
         uFogNear: this.envUniforms.uFogNear,
         uFogFar: this.envUniforms.uFogFar,
         uFogColor: this.envUniforms.uFogColor,
+        uTime: this.envUniforms.uTime,
+        uGrassStrength: { value: this.envParams.terrain.grassTextureStrength },
+        uDirtStrength: { value: this.envParams.terrain.dirtTextureStrength },
+        uPathStrength: { value: this.envParams.terrain.pathStrength },
       },
       vertexShader,
       fragmentShader,
@@ -70,9 +81,23 @@ export class TerrainChunk {
     this.scene.add(this.mesh);
 
     // 2. Physics (Only for HIGH LOD chunks within small radius if needed, or all)
-    if (this.segments >= 64) {
+    // Use GUI LOD distance if enabled
+    const lodThreshold = this.envParams.performance.enableLOD ? 64 : 16;
+    if (this.segments >= lodThreshold) {
         this.createPhysics(geometry);
+        this.spawnVegetation();
     }
+  }
+
+  spawnVegetation() {
+      if (!this.vegManager) return;
+      
+      const instances = this.vegManager.getVegetationForChunk(this.x, this.z, this.size);
+      instances.forEach(mesh => {
+          mesh.position.set(this.x, 0, this.z);
+          this.scene.add(mesh);
+          this.vegetation.push(mesh);
+      });
   }
 
   createPhysics(geometry) {
@@ -93,6 +118,12 @@ export class TerrainChunk {
       this.mesh.material.dispose();
       this.scene.remove(this.mesh);
     }
+    this.vegetation.forEach(mesh => {
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        this.scene.remove(mesh);
+    });
+    this.vegetation = [];
     if (this.collider) {
       this.world.removeCollider(this.collider, true);
     }
@@ -111,23 +142,41 @@ export class ChunkManager {
     this.envUniforms = envUniforms;
     this.envParams = envParams;
 
+    this.vegManager = new VegetationManager(scene, this.calculateHeight.bind(this), envParams);
+    this.vegManager.loadModels().then(() => {
+        this.refreshChunks();
+    });
+
     this.chunks = new Map();
     this.chunkSize = envParams.terrain.chunkSize;
     
     // Initial textures (need to be loaded in main and passed)
     const loader = new THREE.TextureLoader();
     this.envParams.textures = {
-        grass: { value: loader.load("/textures/two_k/coast_sand_rocks.jpg") },
-        dirt: { value: loader.load("/textures/two_k/dirt.jpg") },
+        mossyGrass: { value: loader.load("/textures/mossy_grass/Mossy_Grass_vcjmej0s_2K_BaseColor.jpg") },
+        wildGrass: { value: loader.load("/textures/wild_grass/Wild_Grass_sfknaeoa_2K_BaseColor.jpg") },
+        forestFloor: { value: loader.load("/textures/forest_floor/Forest_Floor_vktfeilaw_2K_BaseColor.jpg") },
+        soilGround: { value: loader.load("/textures/soil_ground/Soil_Ground_xdhhdhl_2K_BaseColor.jpg") },
+        dirtGround: { value: loader.load("/textures/dirt_ground/Dirt_Ground_xdhhdgq_2K_BaseColor.jpg") },
+        forestPath: { value: loader.load("/textures/forest_path/Forest_Path_ugsnfawlw_2K_BaseColor.jpg") },
         rock: { value: loader.load("/textures/two_k/rock.jpg") }
     };
     Object.values(this.envParams.textures).forEach(t => {
         t.value.wrapS = t.value.wrapT = THREE.RepeatWrapping;
+        t.value.anisotropy = 16;
     });
 
 
 
     this.update(new THREE.Vector3(0, 0, 0));
+  }
+
+  refreshChunks() {
+      for (const [key, chunk] of this.chunks) {
+          chunk.dispose();
+          this.chunks.delete(key);
+      }
+      this.update(this.camera.position);
   }
 
 
@@ -171,16 +220,16 @@ export class ChunkManager {
 
         let lod = 16;
         if (dist < this.envParams.terrain.lodDistNear) lod = 128;
-        else if (dist < this.envParams.terrain.lodDistMid) lod = 64;
+        else if (dist < this.envParams.performance.lodFar) lod = 64;
 
         if (!this.chunks.has(key)) {
-          this.chunks.set(key, new TerrainChunk(chunkX, chunkZ, this.chunkSize, lod, this.scene, this.world, this.envUniforms, this.envParams, this.calculateHeight.bind(this)));
+          this.chunks.set(key, new TerrainChunk(chunkX, chunkZ, this.chunkSize, lod, this.scene, this.world, this.envUniforms, this.envParams, this.calculateHeight.bind(this), this.vegManager));
         } else {
             // Check for LOD change
             const chunk = this.chunks.get(key);
             if (chunk.segments !== lod) {
                 chunk.dispose();
-                this.chunks.set(key, new TerrainChunk(chunkX, chunkZ, this.chunkSize, lod, this.scene, this.world, this.envUniforms, this.envParams, this.calculateHeight.bind(this)));
+                this.chunks.set(key, new TerrainChunk(chunkX, chunkZ, this.chunkSize, lod, this.scene, this.world, this.envUniforms, this.envParams, this.calculateHeight.bind(this), this.vegManager));
             }
         }
       }
@@ -198,6 +247,10 @@ export class ChunkManager {
     for (const chunk of this.chunks.values()) {
         chunk.mesh.material.uniforms.uCameraPos.value.copy(this.camera.position);
         chunk.mesh.material.uniforms.uLightDir.value.copy(this.envUniforms.uSunPos.value).normalize();
+        chunk.mesh.material.uniforms.uTextureScale.value = this.envParams.terrain.texScale;
+        chunk.mesh.material.uniforms.uGrassStrength.value = this.envParams.terrain.grassTextureStrength;
+        chunk.mesh.material.uniforms.uDirtStrength.value = this.envParams.terrain.dirtTextureStrength;
+        chunk.mesh.material.uniforms.uPathStrength.value = this.envParams.terrain.pathStrength;
     }
   }
 
