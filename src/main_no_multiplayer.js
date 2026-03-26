@@ -1,13 +1,77 @@
 import * as THREE from "three";
 import { Character } from "./entities/character.js";
-import { InfiniteTerrain } from "./terrain.js";
+
 import Rapier from "@dimforge/rapier3d-compat";
 import { Interior } from "./entities/interior.js";
 import { InvisibleMesh } from "./entities/invisible_mesh.js";
 import { ThreePerf } from "three-perf";
 import { FogSystem } from "./environment/fog-system.js";
 import { StealthMap } from "./environment/stealth-map.js";
+import GUI from "lil-gui";
+import skyVert from "./shaders/sky_vert.glsl?raw";
+import skyFrag from "./shaders/sky_frag.glsl?raw";
+import { ChunkManager } from "./terrain.js";
+import { createNoise2D } from "simplex-noise";
 
+const gui = new GUI();
+const envParams = {
+  sun: {
+    intensity: 2.0,
+    color: 0xffffff,
+    pos: new THREE.Vector3(50, 100, 50),
+    glowIntensity: 1.8,
+    glowSize: 20
+  },
+  sky: {
+    zenith: 0x0055ff,
+    horizon: 0x88ccff
+  },
+
+  fog: {
+    near: 1,
+    far: 200,
+    color: 0xaaccff
+  },
+  terrain: {
+    texScale: 10.0,
+    intensity: 1.0,
+    specular: 0.5,
+    chunkSize: 50.0,
+    renderDist: 3, // 3x3 or 5x5 chunks
+    lodDistNear: 60.0,
+    lodDistMid: 120.0,
+    heightMult: 8.0,
+  },
+  lowland: {
+    baseFreq: 0.003,
+    hillFreq: 0.015,
+    detailFreq: 0.04,
+    baseAmp: 1.0,
+    hillAmp: 0.3,
+    detailAmp: 0.05
+  },
+
+};
+
+
+
+const envUniforms = {
+  uTime: { value: 0 },
+  uSunPos: { value: envParams.sun.pos },
+  uZenithColor: { value: new THREE.Color(envParams.sky.zenith) },
+  uHorizonColor: { value: new THREE.Color(envParams.sky.horizon) },
+  uFogNear: { value: envParams.fog.near },
+  uFogFar: { value: envParams.fog.far },
+  uFogColor: { value: new THREE.Color(envParams.fog.color) }
+};
+
+gui.domElement.querySelectorAll(".lil-gui .title").forEach(el => {
+  el.style.background = "#2a2a2a";
+});
+
+gui.domElement.querySelectorAll(".lil-gui .children").forEach(el => {
+  el.style.background = "#1e1e1e";
+});
 await Rapier.init({});
 let lastTime = performance.now();
 let yaw = 0;
@@ -15,6 +79,7 @@ let pitch = 0;
 /* =========================
    LOADING MANAGER
 ========================= */
+const clock = new THREE.Clock();
 
 const loaderDiv = document.getElementById("loader");
 const progressText = document.getElementById("progress");
@@ -37,12 +102,99 @@ loadingManager.onLoad = () => {
 
 const gravity = { x: 0, y: -20, z: 0 };
 const world = new Rapier.World(gravity);
-
-/* =========================
-   SCENE
-========================= */
-
 const scene = new THREE.Scene();
+
+const sun = new THREE.DirectionalLight(0xffffff, 2);
+sun.position.set(50, 100, 50);
+
+sun.castShadow = true;
+
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 300;
+sun.shadow.camera.left = -100;
+sun.shadow.camera.right = 100;
+sun.shadow.camera.top = 100;
+sun.shadow.camera.bottom = -100;
+
+scene.add(sun);
+scene.add(sun.target);
+
+// 🌞 SUN GROUP (core + glow)
+const sunGroup = new THREE.Group();
+scene.add(sunGroup);
+
+// 🌞 CORE SUN
+const sunCore = new THREE.Mesh(
+  new THREE.SphereGeometry(10, 32, 32),
+  new THREE.MeshBasicMaterial({
+    color: envParams.sun.color,
+  })
+);
+
+sun.intensity = envParams.sun.intensity;
+sun.color.set(envParams.sun.color);
+sun.position.copy(envParams.sun.pos);
+
+
+// make it brighter
+sunCore.material.color.multiplyScalar(2.5);
+
+sunGroup.add(sunCore);
+
+// 🔥 GLOW HALO (shader)
+const glowMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    uColor: { value: new THREE.Color(0xffaa33) },
+    uIntensity: { value: 1.8 },
+  },
+  vertexShader: `
+    varying vec3 vNormal;
+    void main() {
+      vNormal = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform vec3 uColor;
+    uniform float uIntensity;
+    varying vec3 vNormal;
+
+    void main() {
+      float fresnel = pow(1.0 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.0);
+      float alpha = fresnel * uIntensity;
+
+      gl_FragColor = vec4(uColor, alpha);
+    }
+  `,
+  blending: THREE.AdditiveBlending,
+  transparent: true,
+  depthWrite: false,
+});
+
+const sunGlow = new THREE.Mesh(
+  new THREE.SphereGeometry(envParams.sun.glowSize, 32, 32),
+  glowMaterial
+);
+
+sunGroup.add(sunGlow);
+
+// 🌌 SKY DOME
+const skyGeo = new THREE.SphereGeometry(450, 32, 32);
+const skyMat = new THREE.ShaderMaterial({
+  vertexShader: skyVert,
+  fragmentShader: skyFrag,
+  uniforms: {
+    uSunPosition: envUniforms.uSunPos,
+    uZenithColor: envUniforms.uZenithColor,
+    uHorizonColor: envUniforms.uHorizonColor
+  },
+  side: THREE.BackSide,
+  depthWrite: false
+});
+const sky = new THREE.Mesh(skyGeo, skyMat);
+scene.add(sky);
+
 
 /* =========================
    DEBUG PHYSICS
@@ -97,34 +249,86 @@ const perf = new ThreePerf({
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-dirLight.position.set(10, 20, 10);
-dirLight.castShadow = true;
-dirLight.shadow.mapSize.width = 2048;
-dirLight.shadow.mapSize.height = 2048;
-dirLight.shadow.camera.near = 1;
-dirLight.shadow.camera.far = 200;
-dirLight.shadow.camera.left = -50;
-dirLight.shadow.camera.right = 50;
-dirLight.shadow.camera.top = 50;
-dirLight.shadow.camera.bottom = -50;
-scene.add(dirLight);
+
+
+/* =========================
+   GUI CONTROLS
+ ========================= */
+
+const sunFolder = gui.addFolder("🌞 Sun");
+sunFolder.add(envParams.sun, "intensity", 0, 10, 0.1).onChange((v) => {
+  sun.intensity = v;
+});
+sunFolder.addColor(envParams.sun, "color").onChange((v) => {
+  sun.color.set(v);
+  sunCore.material.color.set(v);
+});
+sunFolder.add(sun.position, "x", -500, 500, 1);
+sunFolder.add(sun.position, "y", -500, 500, 1);
+sunFolder.add(sun.position, "z", -500, 500, 1);
+
+const glowFolder = gui.addFolder("✨ Glow");
+glowFolder.add(envParams.sun, "glowIntensity", 0, 5, 0.1);
+glowFolder.add(envParams.sun, "glowSize", 1, 100, 1).onChange((v) => {
+  sunGlow.geometry.dispose();
+  sunGlow.geometry = new THREE.SphereGeometry(v, 32, 32);
+});
+
+
+const skyFolder = gui.addFolder("🌌 Sky");
+skyFolder.addColor(envParams.sky, "zenith").onChange((v) => {
+  envUniforms.uZenithColor.value.set(v);
+});
+skyFolder.addColor(envParams.sky, "horizon").onChange((v) => {
+  envUniforms.uHorizonColor.value.set(v);
+});
+
+
 
 /* =========================
    WORLD
 ========================= */
 
-const terrain = new InfiniteTerrain(scene, world);
-const stealthMap = new StealthMap(scene, world, terrain,{
-  mapSize: 45,
-  wallHeight: 6,
+const chunkManager = new ChunkManager(scene, world, camera, createNoise2D(), envUniforms, envParams);
+const terrain = chunkManager; // alias for compatibility if needed
 
-  rockCount: 35,
-  rockMin: 0.7,
-  rockMax: 2.2,
 
-  coverWallCount: 12,
+const worldFolder = gui.addFolder("🌍 World (Chunks)");
+worldFolder.add(envParams.terrain, "chunkSize", 20, 100, 5).name("Chunk Size");
+worldFolder.add(envParams.terrain, "renderDist", 1, 6, 1).name("Render Distance");
+worldFolder.add(envParams.terrain, "lodDistNear", 20, 200, 10).name("Near LOD Dist");
+
+const lowlandFolder = gui.addFolder("🌴 Lowland Terrain");
+lowlandFolder.add(envParams.lowland, "baseFreq", 0.0001, 0.01, 0.0001).name("Base Freq");
+lowlandFolder.add(envParams.lowland, "hillFreq", 0.001, 0.05, 0.001).name("Hill Freq");
+lowlandFolder.add(envParams.lowland, "detailFreq", 0.01, 0.2, 0.01).name("Detail Freq");
+lowlandFolder.add(envParams.lowland, "baseAmp", 0, 2, 0.1).name("Base Amp");
+lowlandFolder.add(envParams.lowland, "hillAmp", 0, 1, 0.1).name("Hill Amp");
+lowlandFolder.add(envParams.terrain, "heightMult", 1, 50, 1).name("Max Height");
+
+const terrainFolder = gui.addFolder("🎨 Appearance");
+terrainFolder.add(envParams.terrain, "texScale", 1, 50, 0.1).name("Texture Scale");
+terrainFolder.add(envParams.terrain, "intensity", 0, 5, 0.1).name("Intensity");
+
+terrainFolder.add(envParams.terrain, "specular", 0, 5, 0.1).onChange((v) => {
+  terrain.mesh.material.uniforms.uSpecularStrength.value = v;
 });
+
+const fogFolder = gui.addFolder("🌫️ Fog");
+fogFolder.add(envParams.fog, "near", 0, 100, 1).onChange((v) => {
+  envUniforms.uFogNear.value = v;
+});
+fogFolder.add(envParams.fog, "far", 10, 500, 1).onChange((v) => {
+  envUniforms.uFogFar.value = v;
+});
+fogFolder.addColor(envParams.fog, "color").onChange((v) => {
+  envUniforms.uFogColor.value.set(v);
+  scene.background.set(v);
+  if (scene.fog) {
+    scene.fog.color.set(v);
+  }
+});
+
 /* =========================
    CHARACTER
 ========================= */
@@ -141,7 +345,7 @@ const modelPath =
     ? "/models/soldier2.glb"
     : "/models/soldier2.glb";
 
-const startPos = new THREE.Vector3(19, 2, 21.3);
+const startPos = new THREE.Vector3(19, 3.2, 21.3);
 
 const localChar = new Character(
   scene,
@@ -181,9 +385,30 @@ document.addEventListener("mousemove", (e) => {
    GAME LOOP
 ========================= */
 
-
 function animate() {
   requestAnimationFrame(animate);
+  const elapsedTime = clock.getElapsedTime()
+  envUniforms.uTime.value = elapsedTime;
+  
+  const lightDir = new THREE.Vector3()
+    .subVectors(sun.position, sun.target.position)
+    .normalize();
+  sunGroup.position.copy(sun.position);
+  envUniforms.uSunPos.value.copy(sun.position);
+
+  // make glow face camera
+  sunGlow.lookAt(camera.position);
+  sunGlow.material.uniforms.uIntensity.value =
+  envParams.sun.glowIntensity + Math.sin(elapsedTime * 2.0) * 0.2;
+  
+  chunkManager.update(camera.position);
+
+  sky.position.copy(camera.position); // sky follows camera
+
+
+  
+
+
 
   perf.begin();
 

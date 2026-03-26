@@ -12,7 +12,7 @@ export class StealthMap {
 
     const loader = new THREE.TextureLoader();
 
-    const rockTex = loader.load("/textures/four_k/rock.jpg");
+    const rockTex = loader.load("/textures/two_k/rock.jpg");
 
     rockTex.wrapS = THREE.RepeatWrapping;
     rockTex.wrapT = THREE.RepeatWrapping;

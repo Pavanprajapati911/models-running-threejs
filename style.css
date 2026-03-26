@@ -16,6 +16,19 @@ body
     top: 0;
     left: 0;
     outline: none;
+    z-index: -1;
+}
+.lil-gui {
+  background: #1e1e1e !important;
+  color: #fff;
+}
+
+.lil-gui .title {
+  background: #2a2a2a !important;
+}
+
+.lil-gui .children {
+  background: #1e1e1e !important;
 }
 
 #loader{
