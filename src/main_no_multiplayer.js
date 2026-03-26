@@ -57,28 +57,63 @@ const envParams = {
     density: 0.7,
     scale: 0.01,
     contrast: 1.0,
+    dryThreshold: 0.3,
+    grassThreshold: 0.55,
+    forestThreshold: 0.75,
+    influence: 1.0,
+    blend: 0.5,
+  },
+  biomes: {
+    jungle: {
+      treeDensity: 80,
+      grassDensity: 1500,
+      bushDensity: 120,
+      rockDensity: 5,
+      clusterStrength: 1.0
+    },
+    forest: {
+      treeDensity: 50,
+      grassDensity: 900,
+      bushDensity: 80,
+      rockDensity: 8,
+      clusterStrength: 0.7
+    },
+    grassland: {
+      treeDensity: 20,
+      grassDensity: 600,
+      bushDensity: 40,
+      rockDensity: 10,
+      clusterStrength: 0.4
+    },
+    dry: {
+      treeDensity: 5,
+      grassDensity: 100,
+      bushDensity: 5,
+      rockDensity: 20,
+      clusterStrength: 0.2
+    }
+  },
+  path: {
+    strength: 1.0,
+    width: 0.1,
+    influence: 1.0
+  },
+  debug: {
+    showBiome: false
   },
   grass: {
-    density: 600,
     scaleMin: 0.8,
     scaleMax: 1.3,
     patchiness: 0.5,
     fadeDistance: 150,
   },
   bush: {
-    density: 60,
-    clusterSize: 5,
     noiseScale: 0.05,
   },
   tree: {
-    density: 40,
-    clusterSize: 10,
     noiseScale: 0.01,
-    palmRatio: 0.5,
-    deadRatio: 0.1,
   },
   rock: {
-    density: 12,
     scaleMin: 0.5,
     scaleMax: 3.0,
   },
@@ -91,7 +126,6 @@ const envParams = {
     seed: 12345,
     strength: 1.0,
   }
-
 };
 
 
@@ -103,7 +137,11 @@ const envUniforms = {
   uHorizonColor: { value: new THREE.Color(envParams.sky.horizon) },
   uFogNear: { value: envParams.fog.near },
   uFogFar: { value: envParams.fog.far },
-  uFogColor: { value: new THREE.Color(envParams.fog.color) }
+  uFogColor: { value: new THREE.Color(envParams.fog.color) },
+  uShowBiomeDebug: { value: envParams.debug.showBiome },
+  uDryThreshold: { value: envParams.biome.dryThreshold },
+  uGrassThreshold: { value: envParams.biome.grassThreshold },
+  uForestThreshold: { value: envParams.biome.forestThreshold },
 };
 
 gui.domElement.querySelectorAll(".lil-gui .title").forEach(el => {
@@ -334,34 +372,33 @@ const chunkManager = new ChunkManager(scene, world, camera, createNoise2D(), env
 const terrain = chunkManager; // alias for compatibility if needed
 
 
-const biomeFolder = gui.addFolder("🌍 Biome Settings");
-biomeFolder.add(envParams.biome, "density", 0, 1).name("Biome Density");
-biomeFolder.add(envParams.biome, "scale", 0.001, 0.02).name("Biome Scale");
-biomeFolder.add(envParams.biome, "contrast", 0, 2).name("Biome Contrast");
+const advBiomeFolder = gui.addFolder("🌍 Advanced Biomes");
+advBiomeFolder.add(envParams.biome, "dryThreshold", 0, 1).name("Dry Threshold").onChange(() => chunkManager.refreshChunks());
+advBiomeFolder.add(envParams.biome, "grassThreshold", 0, 1).name("Grass Threshold").onChange(() => chunkManager.refreshChunks());
+advBiomeFolder.add(envParams.biome, "forestThreshold", 0, 1).name("Forest Threshold").onChange(() => chunkManager.refreshChunks());
+advBiomeFolder.add(envParams.biome, "influence", 0, 2).name("Biome Influence").onChange(() => chunkManager.refreshChunks());
+advBiomeFolder.add(envParams.biome, "blend", 0, 1).name("Biome Blend");
 
-const grassFolder = gui.addFolder("🌱 Grass Settings");
-grassFolder.add(envParams.grass, "density", 0, 2000, 10).name("Grass Density");
-grassFolder.add(envParams.grass, "scaleMin", 0.5, 1.5).name("Scale Min");
-grassFolder.add(envParams.grass, "scaleMax", 0.5, 2.0).name("Scale Max");
-grassFolder.add(envParams.grass, "patchiness", 0, 1).name("Patchiness");
-grassFolder.add(envParams.grass, "fadeDistance", 10, 500).name("Fade Dist");
+// Biome-specific subfolders
+const biomes = ["jungle", "forest", "grassland", "dry"];
+biomes.forEach(b => {
+    const f = advBiomeFolder.addFolder(b.charAt(0).toUpperCase() + b.slice(1));
+    f.add(envParams.biomes[b], "treeDensity", 0, 200).name("Tree Density").onChange(() => chunkManager.refreshChunks());
+    f.add(envParams.biomes[b], "grassDensity", 0, 3000).name("Grass Density").onChange(() => chunkManager.refreshChunks());
+    f.add(envParams.biomes[b], "bushDensity", 0, 500).name("Bush Density").onChange(() => chunkManager.refreshChunks());
+    f.add(envParams.biomes[b], "rockDensity", 0, 100).name("Rock Density").onChange(() => chunkManager.refreshChunks());
+    f.add(envParams.biomes[b], "clusterStrength", 0, 1).name("Cluster Strength").onChange(() => chunkManager.refreshChunks());
+});
 
-const bushFolder = gui.addFolder("🌿 Bush Settings");
-bushFolder.add(envParams.bush, "density", 0, 200, 1).name("Bush Density");
-bushFolder.add(envParams.bush, "clusterSize", 1, 10).name("Cluster Size");
-bushFolder.add(envParams.bush, "noiseScale", 0.01, 0.2).name("Noise Scale");
+const pathFolder = gui.addFolder("🛤️ Path Settings");
+pathFolder.add(envParams.path, "strength", 0, 2).name("Path Strength").onChange(() => chunkManager.refreshChunks());
+pathFolder.add(envParams.path, "width", 0, 0.5).name("Path Width").onChange(() => chunkManager.refreshChunks());
+pathFolder.add(envParams.path, "influence", 0, 2).name("Path Influence").onChange(() => chunkManager.refreshChunks());
 
-const treeFolder = gui.addFolder("🌴 Tree Settings");
-treeFolder.add(envParams.tree, "density", 0, 100, 1).name("Tree Density");
-treeFolder.add(envParams.tree, "clusterSize", 1, 20).name("Cluster Size");
-treeFolder.add(envParams.tree, "noiseScale", 0.001, 0.02).name("Noise Scale");
-treeFolder.add(envParams.tree, "palmRatio", 0, 1).name("Palm vs Jungle");
-treeFolder.add(envParams.tree, "deadRatio", 0, 0.3).name("Dead Tree Ratio");
-
-const rockFolder = gui.addFolder("🪨 Rock Settings");
-rockFolder.add(envParams.rock, "density", 0, 50, 1).name("Rock Density");
-rockFolder.add(envParams.rock, "scaleMin", 0.5, 2.0).name("Scale Min");
-rockFolder.add(envParams.rock, "scaleMax", 1.0, 5.0).name("Scale Max");
+const debugFolder = gui.addFolder("🛠️ Debug");
+debugFolder.add(envParams.debug, "showBiome").name("Show Biomes").onChange((v) => {
+    envUniforms.uShowBiomeDebug.value = v;
+});
 
 const terrainTexFolder = gui.addFolder("🎨 Terrain Textures");
 terrainTexFolder.add(envParams.terrain, "texScale", 1, 50, 0.1).name("Texture Scale");

@@ -31,6 +31,13 @@ uniform float uGrassStrength;
 uniform float uDirtStrength;
 uniform float uPathStrength;
 
+uniform bool uShowBiomeDebug;
+uniform float uDryThreshold;
+uniform float uGrassThreshold;
+uniform float uForestThreshold;
+uniform float uBiomeScale;
+uniform float uGlobalSeed;
+
 // Simple noise function
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -47,10 +54,9 @@ float noise(vec2 p) {
 float fbm(vec2 p) {
     float v = 0.0;
     float a = 0.5;
-    vec2 shift = vec2(100.0);
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 4; i++) {
         v += a * noise(p);
-        p = p * 2.0 + shift;
+        p *= 2.0;
         a *= 0.5;
     }
     return v;
@@ -58,73 +64,77 @@ float fbm(vec2 p) {
 
 void main() {
   vec3 normal = normalize(vNormal);
-  vec2 uvScaled = vUv * uTextureScale;
-
-  // ---------------- NOISE FACTORS ----------------
-  
-  // Large scale biome noise (Jungle vs Open)
-  float biomeNoise = fbm(vWorldPos.xz * 0.01);
-  float jungleFactor = smoothstep(0.4, 0.6, biomeNoise);
-  
-  // Path noise (Worn paths)
-  float pathNoise = fbm(vWorldPos.xz * 0.05 + 50.0);
-  float pathFactor = smoothstep(0.65, 0.75, pathNoise);
-  
-  // Local variation noise
-  float varNoise = fbm(vWorldPos.xz * 0.1 + 100.0);
-
-  // ---------------- TEXTURES ----------------
-  
-  vec3 mossyGrass = texture2D(mossyGrassTex, uvScaled).rgb;
-  vec3 wildGrass = texture2D(wildGrassTex, uvScaled).rgb;
-  vec3 forestFloor = texture2D(forestFloorTex, uvScaled).rgb;
-  vec3 soilGround = texture2D(soilGroundTex, uvScaled).rgb;
-  vec3 dirtGround = texture2D(dirtGroundTex, uvScaled).rgb;
-  vec3 forestPath = texture2D(forestPathTex, uvScaled).rgb;
-  vec3 rock = texture2D(rockTex, uvScaled).rgb;
-
-  // ---------------- BLENDING LOGIC ----------------
-  
-  // 1. Base Layer: Blend mossy and wild grass
-  vec3 grassLayer = mix(mossyGrass, wildGrass, varNoise) * uGrassStrength;
-  
-  // 2. Jungle Layer: Use forest floor under dense vegetation
-  vec3 vegetationLayer = mix(grassLayer, forestFloor * uGrassStrength, jungleFactor * 0.8);
-  
-  // 3. Path Layer: Blend soil and dirt
-  vec3 pathLayer = mix(soilGround, dirtGround, varNoise) * uDirtStrength;
-  // Add some forest_path texture to paths
-  pathLayer = mix(pathLayer, forestPath * uPathStrength, smoothstep(0.4, 0.6, varNoise));
-  
-  // 4. Combine vegetation and paths
-  vec3 terrainColor = mix(vegetationLayer, pathLayer, pathFactor);
-  
-  // 5. Slope Layer: Rock on steep slopes
-  float slope = 1.0 - normal.y;
-  float rockSlopeFactor = smoothstep(0.4, 0.7, slope);
-  terrainColor = mix(terrainColor, rock, rockSlopeFactor);
-
-  // Darken under jungle
-  terrainColor *= mix(1.0, 0.7, jungleFactor * 0.5);
-
-  // ---------------- LIGHTING ----------------
   vec3 lightDir = normalize(uLightDir);
-  float diff = max(dot(normal, lightDir), 0.0);
   
+  float diff = max(dot(normal, lightDir), 0.0);
   vec3 viewDir = normalize(uCameraPos - vWorldPos);
-  vec3 halfDir = normalize(lightDir + viewDir);
-  float spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
+  vec3 reflectDir = reflect(-lightDir, normal);
+  float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0) * uSpecularStrength;
 
-  // ---------------- FINAL COLOR ----------------
-  vec3 ambient = terrainColor * 0.3;
-  vec3 diffuse = terrainColor * diff * uLightColor * uLightingIntensity;
-  vec3 specular = spec * vec3(1.0) * uSpecularStrength;
+  // 1. Calculate Biome Factor
+  vec2 biomeUV = (vWorldPos.xz + vec2(uGlobalSeed)) * uBiomeScale;
+  float biomeVal = fbm(biomeUV);
+  
+  // 2. Sample Textures (normalized per texScale)
+  vec2 uv = vWorldPos.xz * uTextureScale * 0.01;
+  vec3 mossyGrass = texture2D(mossyGrassTex, uv).rgb;
+  vec3 wildGrass = texture2D(wildGrassTex, uv).rgb;
+  vec3 forestFloor = texture2D(forestFloorTex, uv).rgb;
+  vec3 soilGround = texture2D(soilGroundTex, uv).rgb;
+  vec3 dirtGround = texture2D(dirtGroundTex, uv).rgb;
+  vec3 forestPath = texture2D(forestPathTex, uv).rgb;
+  vec3 rockTexSample = texture2D(rockTex, uv).rgb;
 
-  vec3 finalColor = diffuse + ambient + specular;
+  // 3. Path Factor
+  float pathVal = fbm((vWorldPos.xz + vec2(uGlobalSeed * 2.0)) * 0.05);
+  float pathFactor = smoothstep(0.45, 0.55, pathVal);
+  
+  // 4. Variation Noise
+  float varNoise = fbm(vWorldPos.xz * 0.1);
 
-  // ---------------- FOG ----------------
-  float dist = length(uCameraPos - vWorldPos);
+  // ---------------- BIOME-DRIVEN BLENDING ----------------
+  vec3 terrainColor;
+  vec3 debugColor;
+
+  if (biomeVal < uDryThreshold) {
+      // DRY BIOME
+      terrainColor = mix(soilGround, dirtGround, varNoise) * uDirtStrength;
+      debugColor = vec3(0.5, 0.35, 0.1); // Brownish
+  } else if (biomeVal < uGrassThreshold) {
+      // GRASSLAND BIOME
+      terrainColor = wildGrass * uGrassStrength;
+      debugColor = vec3(0.4, 0.8, 0.2); // Light Green
+  } else if (biomeVal < uForestThreshold) {
+      // FOREST BIOME
+      terrainColor = mix(forestFloor, dirtGround, varNoise) * uGrassStrength;
+      debugColor = vec3(0.1, 0.3, 0.1); // Dark Green
+  } else {
+      // JUNGLE BIOME
+      terrainColor = mix(mossyGrass, forestFloor, varNoise) * uGrassStrength;
+      debugColor = vec3(0.0, 0.6, 0.0); // Jungle Green
+  }
+
+  // Apply paths globally
+  terrainColor = mix(terrainColor, mix(soilGround, forestPath, varNoise) * uPathStrength, pathFactor);
+
+  // Rock on steep slopes
+  float slope = 1.0 - normal.y;
+  float rockFactor = smoothstep(0.4, 0.7, slope);
+  terrainColor = mix(terrainColor, rockTexSample, rockFactor);
+
+  // 5. Final Shadowing/Lighting
+  vec3 finalColor = terrainColor * (diff * uLightingIntensity + 0.3) + spec;
+  
+  // Apply debug mode
+  if (uShowBiomeDebug) {
+      finalColor = mix(finalColor, debugColor, 0.7);
+  }
+
+  // Fog
+  float dist = distance(uCameraPos, vWorldPos);
   float fogFactor = smoothstep(uFogNear, uFogFar, dist);
-  gl_FragColor = vec4(mix(finalColor, uFogColor, fogFactor), 1.0);
+  finalColor = mix(finalColor, uFogColor, fogFactor);
+
+  gl_FragColor = vec4(finalColor, 1.0);
 }
  

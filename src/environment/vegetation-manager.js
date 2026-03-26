@@ -131,67 +131,131 @@ export class VegetationManager {
     const p = this.envParams;
     
     // Helper to get biome at position
-    const getBiome = (x, z) => {
+    const getBiomeType = (x, z) => {
         const offset = p.random.seed;
         const n = this.biomeNoise((x + offset) * p.biome.scale, (z + offset) * p.biome.scale);
-        const biome = THREE.MathUtils.smoothstep(n, -1, 1); // 0 to 1
-        return Math.pow(biome, p.biome.contrast);
+        const biomeVal = (n * 0.5 + 0.5) * p.biome.influence; // 0 to 1 weighted
+
+        if (biomeVal < p.biome.dryThreshold) return "dry";
+        if (biomeVal < p.biome.grassThreshold) return "grassland";
+        if (biomeVal < p.biome.forestThreshold) return "forest";
+        return "jungle";
     };
 
-    const getPath = (x, z) => {
+    const getPathPos = (x, z) => {
         const offset = p.random.seed * 2.0;
         const n = this.pathNoise((x + offset) * 0.05, (z + offset) * 0.05);
-        return THREE.MathUtils.smoothstep(n, 0.35, 0.45); // 0 to 1 (1 is path)
+        return (n * 0.5 + 0.5); // 0 to 1
     };
 
-    // 1. Spawning Grass
-    const grassModels = this.models.get("grass").concat(this.models.get("foliage"));
-    instancedMeshes.push(...this.createInstances("grass_layer", grassModels, p.grass.density, chunkX, chunkZ, chunkSize, (x, z) => {
-        const path = getPath(x, z);
-        if (path > 0.4) return 0;
-        
-        // Patchiness
-        const patch = this.noise2D(x * 0.1, z * 0.1) * 0.5 + 0.5;
-        if (patch < (1.0 - p.grass.patchiness)) return 0;
+    // 1. Spawning Layers
+    const layers = [
+        { name: "grass", models: this.models.get("grass").concat(this.models.get("foliage")), densityKey: "grassDensity" },
+        { name: "bush", models: this.models.get("bushes"), densityKey: "bushDensity" },
+        { name: "rock", models: this.models.get("rocks"), densityKey: "rockDensity" },
+        { name: "tree", models: [], densityKey: "treeDensity", isTree: true }
+    ];
 
-        return 0.9;
-    }, p.grass.scaleMin, p.grass.scaleMax));
-
-    // 2. Spawning Bushes
-    const bushes = this.models.get("bushes");
-    instancedMeshes.push(...this.createInstances("bush_layer", bushes, p.bush.density, chunkX, chunkZ, chunkSize, (x, z) => {
-        const biome = getBiome(x, z);
-        const path = getPath(x, z);
-        if (path > 0.4) return 0;
-        
-        const cluster = this.clusterNoise(x * p.bush.noiseScale, z * p.bush.noiseScale) * 0.5 + 0.5;
-        const jungleDensity = p.biome.density;
-        
-        return cluster > (1.0 - jungleDensity * biome) ? 1.0 : 0.05;
-    }, 0.9, 1.2));
-
-    // 3. Spawning Trees
-    const palms = this.models.get("palms");
-    const jungle = this.models.get("jungleTrees");
-    const dead = this.models.get("deadTrees");
-
-    instancedMeshes.push(...this.createInstances("tree_layer", [], p.tree.density, chunkX, chunkZ, chunkSize, (x, z) => {
-        const biome = getBiome(x, z);
-        const path = getPath(x, z);
-        if (path > 0.3) return 0;
-
-        const cluster = this.clusterNoise(x * p.tree.noiseScale, z * p.tree.noiseScale) * 0.5 + 0.5;
-        return cluster > (1.0 - p.biome.density * biome) ? 1.0 : 0.0;
-    }, 1.0, 2.5, true));
-
-    // 4. Spawning Rocks
-    const rocks = this.models.get("rocks");
-    instancedMeshes.push(...this.createInstances("rock_layer", rocks, p.rock.density, chunkX, chunkZ, chunkSize, (x, z) => {
-        const path = getPath(x, z);
-        return (path > 0.3 && path < 0.7) ? 0.8 : 0.1;
-    }, p.rock.scaleMin, p.rock.scaleMax, false, -0.5));
+    layers.forEach(layer => {
+        const categoryMeshes = this.createBiomeInstances(
+            layer.name,
+            layer.models,
+            chunkX,
+            chunkZ,
+            chunkSize,
+            getBiomeType,
+            getPathPos,
+            layer.densityKey,
+            layer.isTree
+        );
+        instancedMeshes.push(...categoryMeshes);
+    });
 
     return instancedMeshes;
+  }
+
+  createBiomeInstances(name, modelDataList, chunkX, chunkZ, chunkSize, getBiomeType, getPathPos, densityKey, isTree = false) {
+    const p = this.envParams;
+    const groups = new Map();
+    
+    // Sample density - we use max density across biomes as base count then filter
+    const maxDensity = Math.max(...Object.values(p.biomes).map(b => b[densityKey]));
+    const count = Math.ceil(maxDensity * (chunkSize * chunkSize / 2500)); // Normalize per 50x50 chunk
+
+    for (let i = 0; i < count; i++) {
+        const rx = Math.random() * chunkSize - chunkSize/2;
+        const rz = Math.random() * chunkSize - chunkSize/2;
+        const x = chunkX + rx;
+        const z = chunkZ + rz;
+        
+        const biomeType = getBiomeType(x, z);
+        const biomeParams = p.biomes[biomeType];
+        
+        // Probabilistic density check
+        const targetDensity = biomeParams[densityKey];
+        if (Math.random() > (targetDensity / maxDensity)) continue;
+
+        // Path suppression
+        const pathVal = getPathPos(x, z);
+        const pathSuppression = Math.max(0, 1.0 - (pathVal - 0.5) * 5.0 * p.path.influence);
+        if (biomeType !== "jungle" && pathVal > 0.45) continue; // Full clear for non-jungle
+        if (biomeType === "jungle" && pathVal > 0.6) continue; // Partial clear for jungle
+
+        // Clustering
+        const cluster = (this.clusterNoise(x * 0.05, z * 0.05) * 0.5 + 0.5);
+        if (cluster < (1.0 - biomeParams.clusterStrength)) continue;
+
+        const y = this.calculateHeight(x, z);
+        
+        // Pick a model based on biome and type
+        let modelData;
+        if (isTree) {
+            const jungleTrees = this.models.get("jungleTrees");
+            const palmTrees = this.models.get("palms");
+            const deadTrees = this.models.get("deadTrees");
+
+            if (biomeType === "dry") {
+                modelData = deadTrees[Math.floor(Math.random() * deadTrees.length)];
+            } else if (biomeType === "jungle") {
+                modelData = Math.random() < 0.4 ? palmTrees[Math.floor(Math.random() * palmTrees.length)] : jungleTrees[Math.floor(Math.random() * jungleTrees.length)];
+            } else if (biomeType === "forest") {
+                modelData = jungleTrees[Math.floor(Math.random() * jungleTrees.length)];
+            } else if (biomeType === "grassland") {
+                if (Math.random() > 0.3) continue; // Sparsely distributed trees in grassland
+                modelData = palmTrees[Math.floor(Math.random() * palmTrees.length)];
+            }
+        } else {
+            modelData = modelDataList[Math.floor(Math.random() * modelDataList.length)];
+        }
+        
+        if (!modelData) continue;
+
+        if (!groups.has(modelData)) groups.set(modelData, []);
+        
+        const matrix = new THREE.Matrix4();
+        const position = new THREE.Vector3(rx, y + (name === "rock" ? -0.5 : 0), rz);
+        const rotation = new THREE.Euler(0, Math.random() * Math.PI * 2, 0);
+        
+        let sMin = p.grass.scaleMin, sMax = p.grass.scaleMax;
+        if (name === "rock") { sMin = p.rock.scaleMin; sMax = p.rock.scaleMax; }
+        if (name === "tree") { sMin = 1.0; sMax = 2.5; }
+        
+        const sVal = sMin + Math.random() * (sMax - sMin);
+        const scale = new THREE.Vector3(sVal, sVal, sVal);
+        
+        matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
+        groups.get(modelData).push(matrix);
+    }
+    
+    const imeshes = [];
+    for (const [modelData, matrices] of groups) {
+        const imesh = new THREE.InstancedMesh(modelData.geometry, modelData.material, matrices.length);
+        imesh.castShadow = true;
+        imesh.receiveShadow = true;
+        for (let i = 0; i < matrices.length; i++) imesh.setMatrixAt(i, matrices[i]);
+        imeshes.push(imesh);
+    }
+    return imeshes;
   }
 
   createInstances(name, modelDataList, count, chunkX, chunkZ, chunkSize, densityFunc, minScale, maxScale, isTree = false, yOffset = 0) {

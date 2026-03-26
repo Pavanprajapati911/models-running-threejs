@@ -70,6 +70,12 @@ export class TerrainChunk {
         uGrassStrength: { value: this.envParams.terrain.grassTextureStrength },
         uDirtStrength: { value: this.envParams.terrain.dirtTextureStrength },
         uPathStrength: { value: this.envParams.terrain.pathStrength },
+        uShowBiomeDebug: this.envUniforms.uShowBiomeDebug,
+        uDryThreshold: this.envUniforms.uDryThreshold,
+        uGrassThreshold: this.envUniforms.uGrassThreshold,
+        uForestThreshold: this.envUniforms.uForestThreshold,
+        uBiomeScale: { value: this.envParams.biome.scale },
+        uGlobalSeed: { value: this.envParams.random.seed },
       },
       vertexShader,
       fragmentShader,
@@ -149,6 +155,7 @@ export class ChunkManager {
 
     this.chunks = new Map();
     this.chunkSize = envParams.terrain.chunkSize;
+    this.needsRefresh = false;
     
     // Initial textures (need to be loaded in main and passed)
     const loader = new THREE.TextureLoader();
@@ -172,11 +179,7 @@ export class ChunkManager {
   }
 
   refreshChunks() {
-      for (const [key, chunk] of this.chunks) {
-          chunk.dispose();
-          this.chunks.delete(key);
-      }
-      this.update(this.camera.position);
+      this.needsRefresh = true;
   }
 
 
@@ -203,6 +206,14 @@ export class ChunkManager {
   }
 
   update(playerPosition) {
+    if (this.needsRefresh) {
+        this.needsRefresh = false;
+        for (const [key, chunk] of this.chunks) {
+            chunk.dispose();
+            this.chunks.delete(key);
+        }
+    }
+
     const currX = Math.floor(playerPosition.x / this.chunkSize);
     const currZ = Math.floor(playerPosition.z / this.chunkSize);
     const radius = this.envParams.terrain.renderDist;
@@ -251,6 +262,11 @@ export class ChunkManager {
         chunk.mesh.material.uniforms.uGrassStrength.value = this.envParams.terrain.grassTextureStrength;
         chunk.mesh.material.uniforms.uDirtStrength.value = this.envParams.terrain.dirtTextureStrength;
         chunk.mesh.material.uniforms.uPathStrength.value = this.envParams.terrain.pathStrength;
+        chunk.mesh.material.uniforms.uDryThreshold.value = this.envParams.biome.dryThreshold;
+        chunk.mesh.material.uniforms.uGrassThreshold.value = this.envParams.biome.grassThreshold;
+        chunk.mesh.material.uniforms.uForestThreshold.value = this.envParams.biome.forestThreshold;
+        chunk.mesh.material.uniforms.uBiomeScale.value = this.envParams.biome.scale;
+        chunk.mesh.material.uniforms.uGlobalSeed.value = this.envParams.random.seed;
     }
   }
 
