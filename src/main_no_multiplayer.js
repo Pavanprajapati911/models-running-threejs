@@ -109,9 +109,13 @@ const envParams = {
   },
   bush: {
     noiseScale: 0.05,
+    scaleMin: 0.5,
+    scaleMax: 1.5,
   },
   tree: {
     noiseScale: 0.01,
+    scaleMin: 2.0,
+    scaleMax: 5.0,
   },
   rock: {
     scaleMin: 0.5,
@@ -125,6 +129,10 @@ const envParams = {
   random: {
     seed: 12345,
     strength: 1.0,
+  },
+  spectator: {
+    active: false,
+    speed: 20,
   }
 };
 
@@ -382,12 +390,12 @@ advBiomeFolder.add(envParams.biome, "blend", 0, 1).name("Biome Blend");
 // Biome-specific subfolders
 const biomes = ["jungle", "forest", "grassland", "dry"];
 biomes.forEach(b => {
-    const f = advBiomeFolder.addFolder(b.charAt(0).toUpperCase() + b.slice(1));
-    f.add(envParams.biomes[b], "treeDensity", 0, 200).name("Tree Density").onChange(() => chunkManager.refreshChunks());
-    f.add(envParams.biomes[b], "grassDensity", 0, 3000).name("Grass Density").onChange(() => chunkManager.refreshChunks());
-    f.add(envParams.biomes[b], "bushDensity", 0, 500).name("Bush Density").onChange(() => chunkManager.refreshChunks());
-    f.add(envParams.biomes[b], "rockDensity", 0, 100).name("Rock Density").onChange(() => chunkManager.refreshChunks());
-    f.add(envParams.biomes[b], "clusterStrength", 0, 1).name("Cluster Strength").onChange(() => chunkManager.refreshChunks());
+  const f = advBiomeFolder.addFolder(b.charAt(0).toUpperCase() + b.slice(1));
+  f.add(envParams.biomes[b], "treeDensity", 0, 200).name("Tree Density").onChange(() => chunkManager.refreshChunks());
+  f.add(envParams.biomes[b], "grassDensity", 0, 3000).name("Grass Density").onChange(() => chunkManager.refreshChunks());
+  f.add(envParams.biomes[b], "bushDensity", 0, 500).name("Bush Density").onChange(() => chunkManager.refreshChunks());
+  f.add(envParams.biomes[b], "rockDensity", 0, 100).name("Rock Density").onChange(() => chunkManager.refreshChunks());
+  f.add(envParams.biomes[b], "clusterStrength", 0, 1).name("Cluster Strength").onChange(() => chunkManager.refreshChunks());
 });
 
 const pathFolder = gui.addFolder("🛤️ Path Settings");
@@ -397,7 +405,7 @@ pathFolder.add(envParams.path, "influence", 0, 2).name("Path Influence").onChang
 
 const debugFolder = gui.addFolder("🛠️ Debug");
 debugFolder.add(envParams.debug, "showBiome").name("Show Biomes").onChange((v) => {
-    envUniforms.uShowBiomeDebug.value = v;
+  envUniforms.uShowBiomeDebug.value = v;
 });
 
 const terrainTexFolder = gui.addFolder("🎨 Terrain Textures");
@@ -417,6 +425,19 @@ const randomFolder = gui.addFolder("🎲 Randomness");
 randomFolder.add(envParams.random, "seed", 0, 100000, 1).name("Global Seed");
 randomFolder.add(envParams.random, "strength", 0, 1).name("Rand Strength");
 
+// Vegetation Scale Folders
+const vegFolders = {
+  grass: gui.addFolder("🌿 Grass Scale"),
+  bush: gui.addFolder("🌳 Bush Scale"),
+  tree: gui.addFolder("🌲 Tree Scale"),
+  rock: gui.addFolder("🪨 Rock Scale")
+};
+
+Object.entries(vegFolders).forEach(([key, folder]) => {
+  folder.add(envParams[key], "scaleMin", 0.1, 10, 0.1).name("Scale Min").onChange(() => chunkManager.refreshChunks());
+  folder.add(envParams[key], "scaleMax", 0.1, 20, 0.1).name("Scale Max").onChange(() => chunkManager.refreshChunks());
+});
+
 gui.add({ regenerate: () => chunkManager.refreshChunks() }, "regenerate").name("🔄 Regenerate World");
 
 const fogFolder = gui.addFolder("🌫️ Fog");
@@ -431,6 +452,22 @@ fogFolder.addColor(envParams.fog, "color").onChange((v) => {
   scene.background.set(v);
   if (scene.fog) {
     scene.fog.color.set(v);
+  }
+});
+
+const spectatorFolder = gui.addFolder("🎥 Spectator Mode");
+spectatorFolder.add(envParams.spectator, "active").name("Active").listen().onChange((v) => {
+  if (v) {
+    // When activating, sync camera pitch/yaw to current state
+  }
+});
+spectatorFolder.add(envParams.spectator, "speed", 1, 100, 1).name("Speed");
+
+// Toggle with Ctrl + M
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.code === "KeyM") {
+    envParams.spectator.active = !envParams.spectator.active;
+    e.preventDefault();
   }
 });
 
@@ -450,7 +487,7 @@ const modelPath =
     ? "/models/soldier2.glb"
     : "/models/soldier2.glb";
 
-const startPos = new THREE.Vector3(19, 3.2, 21.3);
+const startPos = new THREE.Vector3(19, 0, 21.3);
 
 const localChar = new Character(
   scene,
@@ -483,7 +520,11 @@ document.addEventListener("mousemove", (e) => {
   yaw -= e.movementX * mouseSensitivity;
   pitch -= e.movementY * mouseSensitivity;
 
-  pitch = Math.max(-Math.PI / 6, Math.min(Math.PI / 4, pitch));
+  if (!envParams.spectator.active) {
+    pitch = Math.max(-Math.PI / 6, Math.min(Math.PI / 4, pitch));
+  } else {
+    pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
+  }
 });
 
 /* =========================
@@ -494,7 +535,7 @@ function animate() {
   requestAnimationFrame(animate);
   const elapsedTime = clock.getElapsedTime()
   envUniforms.uTime.value = elapsedTime;
-  
+
   const lightDir = new THREE.Vector3()
     .subVectors(sun.position, sun.target.position)
     .normalize();
@@ -504,14 +545,14 @@ function animate() {
   // make glow face camera
   sunGlow.lookAt(camera.position);
   sunGlow.material.uniforms.uIntensity.value =
-  envParams.sun.glowIntensity + Math.sin(elapsedTime * 2.0) * 0.2;
-  
+    envParams.sun.glowIntensity + Math.sin(elapsedTime * 2.0) * 0.2;
+
   chunkManager.update(camera.position);
 
   sky.position.copy(camera.position); // sky follows camera
 
 
-  
+
 
 
 
@@ -537,10 +578,44 @@ function animate() {
 
   // debugLines.geometry.computeBoundingSphere();
 
-  localChar.update(dt);
+  if (!envParams.spectator.active) {
+    localChar.update(dt);
+  } else {
+    // Update spectator movement
+    const keys = localChar.input.keys;
+    const speed = envParams.spectator.speed;
+    
+    const camDir = new THREE.Vector3(
+      Math.sin(yaw) * Math.cos(pitch),
+      Math.sin(pitch),
+      Math.cos(yaw) * Math.cos(pitch)
+    );
+    
+    const rightDir = new THREE.Vector3()
+      .crossVectors(new THREE.Vector3(0, 1, 0), camDir)
+      .normalize();
+
+    if (keys["KeyW"]) camera.position.addScaledVector(camDir, -speed * dt);
+    if (keys["KeyS"]) camera.position.addScaledVector(camDir, speed * dt);
+    if (keys["KeyA"]) camera.position.addScaledVector(rightDir, -speed * dt);
+    if (keys["KeyD"]) camera.position.addScaledVector(rightDir, speed * dt);
+    if (keys["Space"]) camera.position.y += speed * dt;
+    if (keys["ShiftLeft"]) camera.position.y -= speed * dt;
+
+    camera.lookAt(
+      camera.position.x - camDir.x,
+      camera.position.y - camDir.y,
+      camera.position.z - camDir.z
+    );
+    
+    // Smoothly stop character if moving
+    localChar.body.setLinvel({ x: 0, y: localChar.body.linvel().y, z: 0 }, true);
+    localChar.playAnim("idle");
+  }
+
   fogSystem.update(dt);
 
-  if (localChar.model) {
+  if (localChar.model && !envParams.spectator.active) {
     const camDist = 1.5;
     const camHeight = 1.6;
 

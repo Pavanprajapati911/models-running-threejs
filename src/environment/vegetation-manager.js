@@ -10,7 +10,7 @@ export class VegetationManager {
     this.loader = new GLTFLoader();
     this.models = new Map();
     this.noise2D = createNoise2D();
-    
+
     // Noise for biomes and clusters
     this.biomeNoise = createNoise2D();
     this.pathNoise = createNoise2D();
@@ -43,10 +43,10 @@ export class VegetationManager {
         "/models/environment/bushes/bush_three.glb"
       ],
       palms: [
-        "/models/environment/palm tress/coconut_tree.glb",
-        "/models/environment/palm tress/palm_tree_big.glb",
-        "/models/environment/palm tress/palm_tree_medium.glb",
-        "/models/environment/palm tress/palm_tree_small.glb"
+        "/models/environment/palm_trees/coconut_tree.glb",
+        "/models/environment/palm_trees/palm_tree_big.glb",
+        "/models/environment/palm_trees/palm_tree_medium.glb",
+        "/models/environment/palm_trees/palm_tree_small.glb"
       ],
       jungleTrees: [
         "/models/environment/low_poly_trees/low_poly_tree_one.glb",
@@ -57,16 +57,16 @@ export class VegetationManager {
         "/models/environment/low_poly_trees_more/low_poly_more_tree_three.glb"
       ],
       deadTrees: [
-        "/models/environment/No leaves tree/no_leaves_tree_one.glb",
-        "/models/environment/No leaves tree/no_leaves_tree_two.glb",
-        "/models/environment/No leaves tree/no_leaves_tree_three.glb",
-        "/models/environment/No leaves tree/no_leaves_tree_four.glb",
-        "/models/environment/No leaves tree/no_leaves_tree_five.glb",
-        "/models/environment/No leaves tree/no_leaves_tree_six.glb",
-        "/models/environment/No leaves tree/no_leaves_tree_seven.glb",
-        "/models/environment/No leaves tree/no_leaves_tree_eight.glb",
-        "/models/environment/No leaves tree/no_leaves_tree_nine.glb",
-        "/models/environment/No leaves tree/no_leaves_tree_ten.glb"
+        "/models/environment/no_leave_tree/no_leaves_tree_one.glb",
+        "/models/environment/no_leave_tree/no_leaves_tree_two.glb",
+        "/models/environment/no_leave_tree/no_leaves_tree_three.glb",
+        "/models/environment/no_leave_tree/no_leaves_tree_four.glb",
+        "/models/environment/no_leave_tree/no_leaves_tree_five.glb",
+        "/models/environment/no_leave_tree/no_leaves_tree_six.glb",
+        "/models/environment/no_leave_tree/no_leaves_tree_seven.glb",
+        "/models/environment/no_leave_tree/no_leaves_tree_eight.glb",
+        "/models/environment/no_leave_tree/no_leaves_tree_nine.glb",
+        "/models/environment/no_leave_tree/no_leaves_tree_ten.glb"
       ],
       rocks: [
         "/models/environment/rocks/giant_rocks_big_one.glb",
@@ -101,19 +101,46 @@ export class VegetationManager {
             child.receiveShadow = true;
           }
         });
+
+        let mesh = null;
+        model.traverse(child => {
+          if (child.isMesh && !mesh) mesh = child;
+        });
+
+        if (!mesh) {
+          console.warn(`No mesh found in model ${path}`);
+          resolve();
+          return;
+        }
+
+        // --- NORMALIZE MODEL SCALING ---
+        mesh.geometry.computeBoundingBox();
+        const bbox = mesh.geometry.boundingBox;
+        const size = new THREE.Vector3();
+        bbox.getSize(size);
+        const maxSide = Math.max(size.x, size.y, size.z);
+        const scaleFactor = 1.0 / maxSide;
         
+        mesh.geometry.scale(scaleFactor, scaleFactor, scaleFactor);
+        
+        // Re-center around base (optional, depends on model export)
+        mesh.geometry.computeBoundingBox();
+        const newBBox = mesh.geometry.boundingBox;
+        mesh.geometry.translate(0, -newBBox.min.y, 0); // Keep base at 0
+
         if (!this.models.has(category)) {
           this.models.set(category, []);
         }
         this.models.get(category).push({
-            geometry: model.children[0].geometry,
-            material: model.children[0].material,
-            mesh: model.children[0]
+          geometry: mesh.geometry,
+          material: mesh.material,
+          mesh: mesh
         });
+        console.log("🌿 Models loaded:", this.models);
         resolve();
       }, undefined, (err) => {
-          console.error(`Error loading model ${path}:`, err);
-          resolve(); // Resolve anyway to not block
+        console.error(`Error loading model ${path}:`, err);
+        resolve(); // Resolve anyway to not block
       });
     });
   }
@@ -129,46 +156,46 @@ export class VegetationManager {
 
     const instancedMeshes = [];
     const p = this.envParams;
-    
+
     // Helper to get biome at position
     const getBiomeType = (x, z) => {
-        const offset = p.random.seed;
-        const n = this.biomeNoise((x + offset) * p.biome.scale, (z + offset) * p.biome.scale);
-        const biomeVal = (n * 0.5 + 0.5) * p.biome.influence; // 0 to 1 weighted
+      const offset = p.random.seed;
+      const n = this.biomeNoise((x + offset) * p.biome.scale, (z + offset) * p.biome.scale);
+      const biomeVal = (n * 0.5 + 0.5) * p.biome.influence; // 0 to 1 weighted
 
-        if (biomeVal < p.biome.dryThreshold) return "dry";
-        if (biomeVal < p.biome.grassThreshold) return "grassland";
-        if (biomeVal < p.biome.forestThreshold) return "forest";
-        return "jungle";
+      if (biomeVal < p.biome.dryThreshold) return "dry";
+      if (biomeVal < p.biome.grassThreshold) return "grassland";
+      if (biomeVal < p.biome.forestThreshold) return "forest";
+      return "jungle";
     };
 
     const getPathPos = (x, z) => {
-        const offset = p.random.seed * 2.0;
-        const n = this.pathNoise((x + offset) * 0.05, (z + offset) * 0.05);
-        return (n * 0.5 + 0.5); // 0 to 1
+      const offset = p.random.seed * 2.0;
+      const n = this.pathNoise((x + offset) * 0.05, (z + offset) * 0.05);
+      return (n * 0.5 + 0.5); // 0 to 1
     };
 
     // 1. Spawning Layers
     const layers = [
-        { name: "grass", models: this.models.get("grass").concat(this.models.get("foliage")), densityKey: "grassDensity" },
-        { name: "bush", models: this.models.get("bushes"), densityKey: "bushDensity" },
-        { name: "rock", models: this.models.get("rocks"), densityKey: "rockDensity" },
-        { name: "tree", models: [], densityKey: "treeDensity", isTree: true }
+      { name: "grass", models: (this.models.get("grass") || []).concat(this.models.get("foliage") || []), densityKey: "grassDensity" },
+      { name: "bush", models: this.models.get("bushes") || [], densityKey: "bushDensity" },
+      { name: "rock", models: this.models.get("rocks") || [], densityKey: "rockDensity" },
+      { name: "tree", models: [], densityKey: "treeDensity", isTree: true }
     ];
 
     layers.forEach(layer => {
-        const categoryMeshes = this.createBiomeInstances(
-            layer.name,
-            layer.models,
-            chunkX,
-            chunkZ,
-            chunkSize,
-            getBiomeType,
-            getPathPos,
-            layer.densityKey,
-            layer.isTree
-        );
-        instancedMeshes.push(...categoryMeshes);
+      const categoryMeshes = this.createBiomeInstances(
+        layer.name,
+        layer.models,
+        chunkX,
+        chunkZ,
+        chunkSize,
+        getBiomeType,
+        getPathPos,
+        layer.densityKey,
+        layer.isTree
+      );
+      instancedMeshes.push(...categoryMeshes);
     });
 
     return instancedMeshes;
@@ -177,154 +204,155 @@ export class VegetationManager {
   createBiomeInstances(name, modelDataList, chunkX, chunkZ, chunkSize, getBiomeType, getPathPos, densityKey, isTree = false) {
     const p = this.envParams;
     const groups = new Map();
-    
+
     // Sample density - we use max density across biomes as base count then filter
     const maxDensity = Math.max(...Object.values(p.biomes).map(b => b[densityKey]));
     const count = Math.ceil(maxDensity * (chunkSize * chunkSize / 2500)); // Normalize per 50x50 chunk
 
     for (let i = 0; i < count; i++) {
-        const rx = Math.random() * chunkSize - chunkSize/2;
-        const rz = Math.random() * chunkSize - chunkSize/2;
-        const x = chunkX + rx;
-        const z = chunkZ + rz;
-        
-        const biomeType = getBiomeType(x, z);
-        const biomeParams = p.biomes[biomeType];
-        
-        // Probabilistic density check
-        const targetDensity = biomeParams[densityKey];
-        if (Math.random() > (targetDensity / maxDensity)) continue;
+      const rx = Math.random() * chunkSize - chunkSize / 2;
+      const rz = Math.random() * chunkSize - chunkSize / 2;
+      const x = chunkX + rx;
+      const z = chunkZ + rz;
 
-        // Path suppression
-        const pathVal = getPathPos(x, z);
-        const pathSuppression = Math.max(0, 1.0 - (pathVal - 0.5) * 5.0 * p.path.influence);
-        if (biomeType !== "jungle" && pathVal > 0.45) continue; // Full clear for non-jungle
-        if (biomeType === "jungle" && pathVal > 0.6) continue; // Partial clear for jungle
+      const biomeType = getBiomeType(x, z);
+      const biomeParams = p.biomes[biomeType];
 
-        // Clustering
-        const cluster = (this.clusterNoise(x * 0.05, z * 0.05) * 0.5 + 0.5);
-        if (cluster < (1.0 - biomeParams.clusterStrength)) continue;
+      // Probabilistic density check
+      const targetDensity = biomeParams[densityKey];
+      if (Math.random() > (targetDensity / maxDensity)) continue;
 
-        const y = this.calculateHeight(x, z);
-        
-        // Pick a model based on biome and type
-        let modelData;
-        if (isTree) {
-            const jungleTrees = this.models.get("jungleTrees");
-            const palmTrees = this.models.get("palms");
-            const deadTrees = this.models.get("deadTrees");
+      // Path suppression
+      const pathVal = getPathPos(x, z);
+      const pathSuppression = Math.max(0, 1.0 - (pathVal - 0.5) * 5.0 * p.path.influence);
+      if (biomeType !== "jungle" && pathVal > 0.45) continue; // Full clear for non-jungle
+      if (biomeType === "jungle" && pathVal > 0.6) continue; // Partial clear for jungle
 
-            if (biomeType === "dry") {
-                modelData = deadTrees[Math.floor(Math.random() * deadTrees.length)];
-            } else if (biomeType === "jungle") {
-                modelData = Math.random() < 0.4 ? palmTrees[Math.floor(Math.random() * palmTrees.length)] : jungleTrees[Math.floor(Math.random() * jungleTrees.length)];
-            } else if (biomeType === "forest") {
-                modelData = jungleTrees[Math.floor(Math.random() * jungleTrees.length)];
-            } else if (biomeType === "grassland") {
-                if (Math.random() > 0.3) continue; // Sparsely distributed trees in grassland
-                modelData = palmTrees[Math.floor(Math.random() * palmTrees.length)];
-            }
-        } else {
-            modelData = modelDataList[Math.floor(Math.random() * modelDataList.length)];
+      // Clustering
+      const cluster = (this.clusterNoise(x * 0.05, z * 0.05) * 0.5 + 0.5);
+      if (cluster < (1.0 - biomeParams.clusterStrength)) continue;
+
+      const y = this.calculateHeight(x, z);
+
+      // Pick a model based on biome and type
+      let modelData;
+      if (isTree) {
+        const jungleTrees = this.models.get("jungleTrees");
+        const palmTrees = this.models.get("palms");
+        const deadTrees = this.models.get("deadTrees");
+
+        if (biomeType === "dry") {
+          modelData = deadTrees[Math.floor(Math.random() * deadTrees.length)];
+        } else if (biomeType === "jungle") {
+          modelData = Math.random() < 0.4 ? palmTrees[Math.floor(Math.random() * palmTrees.length)] : jungleTrees[Math.floor(Math.random() * jungleTrees.length)];
+        } else if (biomeType === "forest") {
+          modelData = jungleTrees[Math.floor(Math.random() * jungleTrees.length)];
+        } else if (biomeType === "grassland") {
+          if (Math.random() > 0.3) continue; // Sparsely distributed trees in grassland
+          modelData = palmTrees[Math.floor(Math.random() * palmTrees.length)];
         }
-        
-        if (!modelData) continue;
+      } else {
+        modelData = modelDataList[Math.floor(Math.random() * modelDataList.length)];
+      }
 
-        if (!groups.has(modelData)) groups.set(modelData, []);
-        
-        const matrix = new THREE.Matrix4();
-        const position = new THREE.Vector3(rx, y + (name === "rock" ? -0.5 : 0), rz);
-        const rotation = new THREE.Euler(0, Math.random() * Math.PI * 2, 0);
-        
-        let sMin = p.grass.scaleMin, sMax = p.grass.scaleMax;
-        if (name === "rock") { sMin = p.rock.scaleMin; sMax = p.rock.scaleMax; }
-        if (name === "tree") { sMin = 1.0; sMax = 2.5; }
-        
-        const sVal = sMin + Math.random() * (sMax - sMin);
-        const scale = new THREE.Vector3(sVal, sVal, sVal);
-        
-        matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
-        groups.get(modelData).push(matrix);
+      if (!modelData) continue;
+
+      if (!groups.has(modelData)) groups.set(modelData, []);
+
+      const matrix = new THREE.Matrix4();
+      const position = new THREE.Vector3(rx, y + (name === "rock" ? -0.2 : 0), rz);
+      const rotation = new THREE.Euler(0, Math.random() * Math.PI * 2, 0);
+
+      // Get scale config based on category mapping
+      const catKey = name === "bush" ? "bush" : (name === "rock" ? "rock" : (name === "tree" ? "tree" : "grass"));
+      const sMin = p[catKey].scaleMin;
+      const sMax = p[catKey].scaleMax;
+
+      const sVal = sMin + Math.random() * (sMax - sMin);
+      const scale = new THREE.Vector3(sVal, sVal, sVal);
+
+      matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
+      groups.get(modelData).push(matrix);
     }
-    
+
     const imeshes = [];
     for (const [modelData, matrices] of groups) {
-        const imesh = new THREE.InstancedMesh(modelData.geometry, modelData.material, matrices.length);
-        imesh.castShadow = true;
-        imesh.receiveShadow = true;
-        for (let i = 0; i < matrices.length; i++) imesh.setMatrixAt(i, matrices[i]);
-        imeshes.push(imesh);
+      const imesh = new THREE.InstancedMesh(modelData.geometry, modelData.material, matrices.length);
+      imesh.castShadow = true;
+      imesh.receiveShadow = true;
+      for (let i = 0; i < matrices.length; i++) imesh.setMatrixAt(i, matrices[i]);
+      imeshes.push(imesh);
     }
     return imeshes;
   }
 
   createInstances(name, modelDataList, count, chunkX, chunkZ, chunkSize, densityFunc, minScale, maxScale, isTree = false, yOffset = 0) {
     const meshes = [];
-    
+
     // Group by unique geometry/material to create InstancedMeshes
     const groups = new Map();
-    
+
     for (let i = 0; i < count; i++) {
-        const rx = Math.random() * chunkSize - chunkSize/2;
-        const rz = Math.random() * chunkSize - chunkSize/2;
-        const x = chunkX + rx;
-        const z = chunkZ + rz;
-        
-        const density = densityFunc(x, z);
-        if (Math.random() > density) continue;
-        
-        const y = this.calculateHeight(x, z);
-        
-        // Pick a model
-        let modelData;
-        const p = this.envParams;
-        if (isTree) {
-            const biome = THREE.MathUtils.smoothstep(this.biomeNoise(x * p.biome.scale, z * p.biome.scale), -1, 1);
-            const rand = Math.random();
-            const deadTrees = this.models.get("deadTrees");
-            const jungleTrees = this.models.get("jungleTrees");
-            const palmTrees = this.models.get("palms");
+      const rx = Math.random() * chunkSize - chunkSize / 2;
+      const rz = Math.random() * chunkSize - chunkSize / 2;
+      const x = chunkX + rx;
+      const z = chunkZ + rz;
 
-            if (rand < p.tree.deadRatio) {
-                modelData = deadTrees[Math.floor(Math.random() * deadTrees.length)];
-            } else {
-                const isPalm = Math.random() < p.tree.palmRatio;
-                if (isPalm) {
-                    modelData = palmTrees[Math.floor(Math.random() * palmTrees.length)];
-                } else {
-                    modelData = jungleTrees[Math.floor(Math.random() * jungleTrees.length)];
-                }
-            }
+      const density = densityFunc(x, z);
+      if (Math.random() > density) continue;
+
+      const y = this.calculateHeight(x, z);
+
+      // Pick a model
+      let modelData;
+      const p = this.envParams;
+      if (isTree) {
+        const biome = THREE.MathUtils.smoothstep(this.biomeNoise(x * p.biome.scale, z * p.biome.scale), -1, 1);
+        const rand = Math.random();
+        const deadTrees = this.models.get("deadTrees");
+        const jungleTrees = this.models.get("jungleTrees");
+        const palmTrees = this.models.get("palms");
+
+        if (rand < p.tree.deadRatio) {
+          modelData = deadTrees[Math.floor(Math.random() * deadTrees.length)];
         } else {
-            modelData = modelDataList[Math.floor(Math.random() * modelDataList.length)];
+          const isPalm = Math.random() < p.tree.palmRatio;
+          if (isPalm) {
+            modelData = palmTrees[Math.floor(Math.random() * palmTrees.length)];
+          } else {
+            modelData = jungleTrees[Math.floor(Math.random() * jungleTrees.length)];
+          }
         }
-        
-        if (!modelData) continue;
+      } else {
+        modelData = modelDataList[Math.floor(Math.random() * modelDataList.length)];
+      }
 
-        if (!groups.has(modelData)) {
-            groups.set(modelData, []);
-        }
-        
-        const matrix = new THREE.Matrix4();
-        const position = new THREE.Vector3(rx, y + yOffset, rz);
-        const rotation = new THREE.Euler(0, Math.random() * Math.PI * 2, 0);
-        const scaleVal = minScale + Math.random() * (maxScale - minScale);
-        const scale = new THREE.Vector3(scaleVal, scaleVal, scaleVal);
-        
-        matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
-        groups.get(modelData).push(matrix);
+      if (!modelData) continue;
+
+      if (!groups.has(modelData)) {
+        groups.set(modelData, []);
+      }
+
+      const matrix = new THREE.Matrix4();
+      const position = new THREE.Vector3(rx, y + yOffset, rz);
+      const rotation = new THREE.Euler(0, Math.random() * Math.PI * 2, 0);
+      const scaleVal = minScale + Math.random() * (maxScale - minScale);
+      const scale = new THREE.Vector3(scaleVal, scaleVal, scaleVal);
+
+      matrix.compose(position, new THREE.Quaternion().setFromEuler(rotation), scale);
+      groups.get(modelData).push(matrix);
     }
-    
+
     for (const [modelData, matrices] of groups) {
-        const imesh = new THREE.InstancedMesh(modelData.geometry, modelData.material, matrices.length);
-        imesh.castShadow = true;
-        imesh.receiveShadow = true;
-        for (let i = 0; i < matrices.length; i++) {
-            imesh.setMatrixAt(i, matrices[i]);
-        }
-        meshes.push(imesh);
+      const imesh = new THREE.InstancedMesh(modelData.geometry, modelData.material, matrices.length);
+      imesh.castShadow = true;
+      imesh.receiveShadow = true;
+      for (let i = 0; i < matrices.length; i++) {
+        imesh.setMatrixAt(i, matrices[i]);
+      }
+      meshes.push(imesh);
     }
-    
+
     return meshes;
   }
 }
