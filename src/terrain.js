@@ -149,6 +149,9 @@ export class TerrainChunk {
       group.rotation.set(obj.rotation[0], obj.rotation[1], obj.rotation[2]);
       group.scale.set(obj.scale[0], obj.scale[1], obj.scale[2]);
 
+      group.userData.isPlacedObject = true;
+      group.userData.placedObjectData = obj;
+
       this.scene.add(group);
       this.placedObjects.push({ data: obj, mesh: group });
   }

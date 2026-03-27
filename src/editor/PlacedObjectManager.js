@@ -74,6 +74,34 @@ export class PlacedObjectManager {
     return this.placedObjects.get(key) || [];
   }
 
+  getAllRenderedMeshes() {
+    const meshes = [];
+    if (!this.chunkManager || !this.chunkManager.chunks) return meshes;
+    for (const chunk of this.chunkManager.chunks.values()) {
+      if (chunk.placedObjects) {
+        chunk.placedObjects.forEach(po => meshes.push(po.mesh));
+      }
+    }
+    return meshes;
+  }
+
+  removeObjectExact(objData) {
+    const key = `${objData.chunk[0]},${objData.chunk[1]}`;
+    if (!this.placedObjects.has(key)) return false;
+
+    const objects = this.placedObjects.get(key);
+    const idx = objects.indexOf(objData);
+    if (idx !== -1) {
+      objects.splice(idx, 1);
+      const chunk = this.chunkManager.chunks.get(key);
+      if (chunk && chunk.removePlacedObject) {
+        chunk.removePlacedObject(objData);
+      }
+      return true;
+    }
+    return false;
+  }
+
   exportJSON() {
     const allObjects = [];
     for (const objs of this.placedObjects.values()) {
