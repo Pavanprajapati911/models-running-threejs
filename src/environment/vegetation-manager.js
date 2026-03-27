@@ -104,12 +104,20 @@ export class VegetationManager {
     return new Promise((resolve) => {
       this.loader.load(path, (gltf) => {
         const model = gltf.scene;
-        model.traverse(child => {
-          if (child.isMesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
-          }
-        });
+        // Ensure all local transforms (like rotation, position inside groups) are baked in
+        model.updateMatrixWorld(true);
+
+        const box = new THREE.Box3().setFromObject(model);
+        if (box.isEmpty()) {
+          console.warn(`No meshes found in model ${path}`);
+          resolve();
+          return;
+        }
+
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxSide = Math.max(size.x, size.y, size.z);
+        const scaleFactor = 1.0 / maxSide;
 
         const meshes = [];
 
@@ -117,7 +125,6 @@ export class VegetationManager {
           if (child.isMesh) {
             // Fix materials (VERY IMPORTANT for leaves)
             const mat = child.material;
-
             if (mat) {
               mat.transparent = true;
               mat.alphaTest = 0.4;
@@ -125,52 +132,28 @@ export class VegetationManager {
               mat.depthWrite = false;
             }
 
-            // Normalize geometry (scale + center)
-            child.geometry.computeBoundingBox();
-            const bbox = child.geometry.boundingBox;
-            const size = new THREE.Vector3();
-            bbox.getSize(size);
+            const geom = child.geometry.clone();
+            
+            // 1. Bake the object's transform in the GLTF tree
+            geom.applyMatrix4(child.matrixWorld);
 
-            const maxSide = Math.max(size.x, size.y, size.z);
-            const scaleFactor = 1.0 / maxSide;
+            // 2. Global uniform scale
+            geom.scale(scaleFactor, scaleFactor, scaleFactor);
 
-            child.geometry.scale(scaleFactor, scaleFactor, scaleFactor);
-
-            child.geometry.computeBoundingBox();
-            const newBBox = child.geometry.boundingBox;
-            child.geometry.translate(0, -newBBox.min.y, 0);
+            // 3. Move base to Y=0
+            geom.translate(0, -box.min.y * scaleFactor, 0);
 
             meshes.push({
-              geometry: child.geometry,
+              geometry: geom,
               material: mat
             });
           }
         });
 
-        if (meshes.length === 0) {
-          console.warn(`No meshes found in model ${path}`);
-          resolve();
-          return;
-        }
-
-        // --- NORMALIZE MODEL SCALING ---
-        mesh.geometry.computeBoundingBox();
-        const bbox = mesh.geometry.boundingBox;
-        const size = new THREE.Vector3();
-        bbox.getSize(size);
-        const maxSide = Math.max(size.x, size.y, size.z);
-        const scaleFactor = 1.0 / maxSide;
-
-        mesh.geometry.scale(scaleFactor, scaleFactor, scaleFactor);
-
-        // Re-center around base (optional, depends on model export)
-        mesh.geometry.computeBoundingBox();
-        const newBBox = mesh.geometry.boundingBox;
-        mesh.geometry.translate(0, -newBBox.min.y, 0); // Keep base at 0
-
         if (!this.models.has(category)) {
           this.models.set(category, []);
         }
+
         // Extract human-readable name from path e.g. "grass_one" from ".../grass_one.glb"
         const modelName = path.split("/").pop().replace(".glb", "");
 
@@ -411,7 +394,7 @@ export class VegetationManager {
           imesh.setMatrixAt(i, matrices[i]);
         }
 
-        imeshes.push(imesh);
+        meshes.push(imesh);
       });
     }
 

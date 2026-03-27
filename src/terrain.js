@@ -134,16 +134,23 @@ export class TerrainChunk {
 
       if (!modelData) return; // Prevent crashes if model failed to load or index is invalid
 
-      const mesh = new THREE.Mesh(modelData.geometry, modelData.material);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+      const group = new THREE.Group();
 
-      mesh.position.set(obj.position[0], obj.position[1], obj.position[2]);
-      mesh.rotation.set(obj.rotation[0], obj.rotation[1], obj.rotation[2]);
-      mesh.scale.set(obj.scale[0], obj.scale[1], obj.scale[2]);
+      if (modelData.meshes) {
+        modelData.meshes.forEach(sub => {
+          const mesh = new THREE.Mesh(sub.geometry, sub.material);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          group.add(mesh);
+        });
+      }
 
-      this.scene.add(mesh);
-      this.placedObjects.push({ data: obj, mesh });
+      group.position.set(obj.position[0], obj.position[1], obj.position[2]);
+      group.rotation.set(obj.rotation[0], obj.rotation[1], obj.rotation[2]);
+      group.scale.set(obj.scale[0], obj.scale[1], obj.scale[2]);
+
+      this.scene.add(group);
+      this.placedObjects.push({ data: obj, mesh: group });
   }
 
 
