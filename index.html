@@ -9,11 +9,29 @@
     <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-     <!-- Loader -->
+    <!-- Loader -->
     <div id="loader">
         <div id="progress">Loading 0%</div>
     </div>
+
+    <!-- Mode indicator (centered top) -->
+    <div id="mode-indicator">RUNTIME</div>
+
+    <!-- Editor sidebar (hidden by default) -->
+    <div id="editor-ui" style="display:none;">
+        <h3>🛠️ MAP EDITOR</h3>
+        <p>Left Click → Place &nbsp;|&nbsp; Shift+Click → Delete<br>Right Drag → Orbit &nbsp;|&nbsp; Scroll → Rotate Object &nbsp;|&nbsp; WASD → Fly</p>
+
+        <div id="model-list"></div>
+        <div class="editor-btn-row">
+            <button id="export-json">💾 Export Map</button>
+            <button id="load-json">📥 Load Map</button>
+        </div>
+        <div id="editor-hint">Press E to return to Game Mode</div>
+    </div>
+
     <canvas class="webgl"></canvas>
-   <script type="module" src="./src/main_no_multiplayer.js"></script>
+    <script type="module" src="./src/main_no_multiplayer.js"></script>
 </body>
+
 </html>

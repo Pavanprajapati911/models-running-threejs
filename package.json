@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
+    "alea": "^1.0.1",
     "lil-gui": "^0.21.0",
     "simplex-noise": "^4.0.3",
     "stats.js": "^0.17.0",

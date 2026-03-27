@@ -4,11 +4,15 @@ import Rapier from "@dimforge/rapier3d-compat";
 import vertexShader from "./shaders/terrain_vert.glsl?raw";
 import fragmentShader from "./shaders/terrain_frag.glsl?raw";
 import { VegetationManager } from "./environment/vegetation-manager.js";
+import alea from "alea";
+import { createNoise2D } from "simplex-noise";
+
+
 
 
 
 export class TerrainChunk {
-  constructor(x, z, size, segments, scene, world, envUniforms, envParams, calculateHeight, vegManager) {
+  constructor(x, z, size, segments, scene, world, envUniforms, envParams, calculateHeight, vegManager, placedObjectManager) {
     this.x = x;
     this.z = z;
     this.size = size;
@@ -19,7 +23,9 @@ export class TerrainChunk {
     this.envParams = envParams;
     this.calculateHeight = calculateHeight;
     this.vegManager = vegManager;
+    this.placedObjectManager = placedObjectManager;
     this.vegetation = [];
+    this.placedObjects = [];
 
     this.mesh = null;
     this.collider = null;
@@ -98,12 +104,55 @@ export class TerrainChunk {
   spawnVegetation() {
       if (!this.vegManager) return;
       
-      const instances = this.vegManager.getVegetationForChunk(this.x, this.z, this.size);
-      instances.forEach(mesh => {
-          mesh.position.set(this.x, 0, this.z);
-          this.scene.add(mesh);
-          this.vegetation.push(mesh);
-      });
+      // Procedural Mode
+      if (this.envParams.mode && this.envParams.mode.type === "procedural") {
+          const instances = this.vegManager.getVegetationForChunk(this.x, this.z, this.size);
+          instances.forEach(mesh => {
+              mesh.position.set(this.x, 0, this.z);
+              this.scene.add(mesh);
+              this.vegetation.push(mesh);
+          });
+      }
+
+      // Static Objects (Runtime/Editor)
+      if (this.placedObjectManager) {
+          const cx = Math.floor(this.x / this.size);
+          const cz = Math.floor(this.z / this.size);
+          const objects = this.placedObjectManager.getObjectsForChunk(cx, cz);
+          objects.forEach(obj => this.spawnPlacedObject(obj));
+      }
+
+  }
+
+  spawnPlacedObject(obj) {
+      const models = this.vegManager.models.get(obj.type) || this.vegManager.models.get("jungleTrees");
+      if (!models || models.length === 0) return;
+
+      // Use the stored modelIndex, clamp to array bounds gracefully
+      const idx = Math.min(obj.modelIndex ?? 0, models.length - 1);
+      const modelData = models[idx];
+
+      if (!modelData) return; // Prevent crashes if model failed to load or index is invalid
+
+      const mesh = new THREE.Mesh(modelData.geometry, modelData.material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+
+      mesh.position.set(obj.position[0], obj.position[1], obj.position[2]);
+      mesh.rotation.set(obj.rotation[0], obj.rotation[1], obj.rotation[2]);
+      mesh.scale.set(obj.scale[0], obj.scale[1], obj.scale[2]);
+
+      this.scene.add(mesh);
+      this.placedObjects.push({ data: obj, mesh });
+  }
+
+
+  removePlacedObject(obj) {
+      const idx = this.placedObjects.findIndex(po => po.data === obj);
+      if (idx !== -1) {
+          this.scene.remove(this.placedObjects[idx].mesh);
+          this.placedObjects.splice(idx, 1);
+      }
   }
 
   createPhysics(geometry) {
@@ -130,6 +179,11 @@ export class TerrainChunk {
         this.scene.remove(mesh);
     });
     this.vegetation = [];
+    this.placedObjects.forEach(po => {
+        this.scene.remove(po.mesh);
+    });
+    this.placedObjects = [];
+
     if (this.collider) {
       this.world.removeCollider(this.collider, true);
     }
@@ -140,13 +194,16 @@ export class TerrainChunk {
 }
 
 export class ChunkManager {
-  constructor(scene, world, camera, noise2D, envUniforms, envParams) {
+  constructor(scene, world, camera, noise2D, envUniforms, envParams, placedObjectManager) {
     this.scene = scene;
     this.world = world;
     this.camera = camera;
-    this.noise2D = noise2D;
+    this.noise2D = noise2D; // Initial one, will be replaced by seeded
+    this.rng = alea(envParams.random.seed);
+    this.noise2D_seeded = createNoise2D(this.rng);
     this.envUniforms = envUniforms;
     this.envParams = envParams;
+    this.placedObjectManager = placedObjectManager;
 
     this.vegManager = new VegetationManager(scene, this.calculateHeight.bind(this), envParams);
     this.vegManager.loadModels().then(() => {
@@ -188,15 +245,15 @@ export class ChunkManager {
     const lowland = this.envParams.lowland;
     
     // Layer 1: Large scale smooth elevation changes
-    const n1 = this.noise2D(x * lowland.baseFreq, z * lowland.baseFreq);
+    const n1 = this.noise2D_seeded(x * lowland.baseFreq, z * lowland.baseFreq);
     const base = n1 * lowland.baseAmp;
     
     // Layer 2: Medium scale gentle rolling hills
-    const n2 = this.noise2D(x * lowland.hillFreq, z * lowland.hillFreq);
+    const n2 = this.noise2D_seeded(x * lowland.hillFreq, z * lowland.hillFreq);
     const hills = n2 * lowland.hillAmp;
     
     // Layer 3: Small scale surface detail
-    const n3 = this.noise2D(x * lowland.detailFreq, z * lowland.detailFreq);
+    const n3 = this.noise2D_seeded(x * lowland.detailFreq, z * lowland.detailFreq);
     const detail = n3 * lowland.detailAmp;
     
     // Combine layers
@@ -208,11 +265,12 @@ export class ChunkManager {
   update(playerPosition) {
     if (this.needsRefresh) {
         this.needsRefresh = false;
-        for (const [key, chunk] of this.chunks) {
+        for (const chunk of this.chunks.values()) {
             chunk.dispose();
-            this.chunks.delete(key);
         }
+        this.chunks.clear();
     }
+
 
     const currX = Math.floor(playerPosition.x / this.chunkSize);
     const currZ = Math.floor(playerPosition.z / this.chunkSize);
@@ -234,13 +292,13 @@ export class ChunkManager {
         else if (dist < this.envParams.performance.lodFar) lod = 64;
 
         if (!this.chunks.has(key)) {
-          this.chunks.set(key, new TerrainChunk(chunkX, chunkZ, this.chunkSize, lod, this.scene, this.world, this.envUniforms, this.envParams, this.calculateHeight.bind(this), this.vegManager));
+          this.chunks.set(key, new TerrainChunk(chunkX, chunkZ, this.chunkSize, lod, this.scene, this.world, this.envUniforms, this.envParams, this.calculateHeight.bind(this), this.vegManager, this.placedObjectManager));
         } else {
             // Check for LOD change
             const chunk = this.chunks.get(key);
             if (chunk.segments !== lod) {
                 chunk.dispose();
-                this.chunks.set(key, new TerrainChunk(chunkX, chunkZ, this.chunkSize, lod, this.scene, this.world, this.envUniforms, this.envParams, this.calculateHeight.bind(this), this.vegManager));
+                this.chunks.set(key, new TerrainChunk(chunkX, chunkZ, this.chunkSize, lod, this.scene, this.world, this.envUniforms, this.envParams, this.calculateHeight.bind(this), this.vegManager, this.placedObjectManager));
             }
         }
       }

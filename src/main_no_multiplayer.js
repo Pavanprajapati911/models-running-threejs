@@ -12,6 +12,10 @@ import skyVert from "./shaders/sky_vert.glsl?raw";
 import skyFrag from "./shaders/sky_frag.glsl?raw";
 import { ChunkManager } from "./terrain.js";
 import { createNoise2D } from "simplex-noise";
+import { PlacedObjectManager } from "./editor/PlacedObjectManager.js";
+import { EditorController } from "./editor/EditorController.js";
+import { ModeController } from "./core/ModeController.js";
+
 
 const gui = new GUI();
 const envParams = {
@@ -38,7 +42,7 @@ const envParams = {
     specular: 0.5,
     chunkSize: 50.0,
     renderDist: 3, // 3x3 or 5x5 chunks
-    lodDistNear: 60.0,
+    lodDistNear: 20.0,
     lodDistMid: 120.0,
     heightMult: 8.0,
     grassTextureStrength: 1.0,
@@ -102,8 +106,8 @@ const envParams = {
     showBiome: false
   },
   grass: {
-    scaleMin: 0.8,
-    scaleMax: 1.3,
+    scaleMin: 0.4,
+    scaleMax: 0.5,
     patchiness: 0.5,
     fadeDistance: 150,
   },
@@ -123,7 +127,7 @@ const envParams = {
   },
   performance: {
     enableLOD: true,
-    lodFar: 200,
+    lodFar: 50,
     maxInstances: 50000,
   },
   random: {
@@ -133,8 +137,13 @@ const envParams = {
   spectator: {
     active: false,
     speed: 20,
+  },
+  mode: {
+    type: "runtime", // "editor" | "runtime" | "procedural"
+    biomeFile: "/biome-coordinates/jungle.json"
   }
 };
+
 
 
 
@@ -376,8 +385,15 @@ skyFolder.addColor(envParams.sky, "horizon").onChange((v) => {
    WORLD
 ========================= */
 
-const chunkManager = new ChunkManager(scene, world, camera, createNoise2D(), envUniforms, envParams);
+const placedObjectManager = new PlacedObjectManager(scene, { chunkSize: envParams.terrain.chunkSize, chunks: new Map() }); // Temp placeholder
+const chunkManager = new ChunkManager(scene, world, camera, createNoise2D(), envUniforms, envParams, placedObjectManager);
+placedObjectManager.chunkManager = chunkManager; // Fix circular ref
 const terrain = chunkManager; // alias for compatibility if needed
+
+const raycaster = new THREE.Raycaster();
+const editorController = new EditorController(scene, camera, raycaster, chunkManager, placedObjectManager);
+const modeController = new ModeController({ envParams, character: null, editorController }); // character set later
+
 
 
 const advBiomeFolder = gui.addFolder("🌍 Advanced Biomes");
@@ -463,13 +479,18 @@ spectatorFolder.add(envParams.spectator, "active").name("Active").listen().onCha
 });
 spectatorFolder.add(envParams.spectator, "speed", 1, 100, 1).name("Speed");
 
-// Toggle with Ctrl + M
+// Toggle with E for Mode Switch
 window.addEventListener("keydown", (e) => {
+  if (e.code === "KeyE") {
+    modeController.toggleMode();
+  }
+  
   if (e.ctrlKey && e.code === "KeyM") {
     envParams.spectator.active = !envParams.spectator.active;
     e.preventDefault();
   }
 });
+
 
 /* =========================
    CHARACTER
@@ -487,7 +508,7 @@ const modelPath =
     ? "/models/soldier2.glb"
     : "/models/soldier2.glb";
 
-const startPos = new THREE.Vector3(19, 0, 21.3);
+const startPos = new THREE.Vector3(19, 4, 21.3);
 
 const localChar = new Character(
   scene,
@@ -498,6 +519,105 @@ const localChar = new Character(
   startPos,
   loadingManager
 );
+modeController.character = localChar;
+const vegManager = chunkManager.vegManager;
+
+// Build collapsible folder-tree model list in the Editor UI
+vegManager.onLoad(() => {
+  const list = document.getElementById("model-list");
+  if (!list) return;
+  list.innerHTML = ""; // clear any stale entries
+
+  let activeItem = null; // track the currently highlighted item
+
+  for (const [category, models] of vegManager.models) {
+    // ── Folder header ──────────────────────────────────────────
+    const folder = document.createElement("div");
+    folder.className = "tree-folder";
+
+    const arrow = document.createElement("span");
+    arrow.className = "tree-arrow";
+    arrow.innerText = "▶";
+
+    const label = document.createElement("span");
+    label.innerText = ` ${category}`;
+
+    const count = document.createElement("small");
+    count.innerText = ` (${models.length})`;
+    count.style.opacity = "0.5";
+
+    folder.appendChild(arrow);
+    folder.appendChild(label);
+    folder.appendChild(count);
+    list.appendChild(folder);
+
+    // ── Items container (collapsed by default) ──────────────────
+    const itemsContainer = document.createElement("div");
+    itemsContainer.className = "tree-items";
+    itemsContainer.style.display = "none";
+
+    models.forEach((model, idx) => {
+      const item = document.createElement("div");
+      item.className = "tree-item";
+      // Clean up the raw filename into a readable label
+      item.innerText = model.name
+        ? model.name.replace(/_/g, " ")
+        : `Model ${idx + 1}`;
+      item.dataset.category = category;
+      item.dataset.index = idx;
+
+      item.addEventListener("click", (e) => {
+        e.stopPropagation();
+        // Deselect previous
+        if (activeItem) activeItem.classList.remove("tree-item--active");
+        activeItem = item;
+        item.classList.add("tree-item--active");
+        editorController.setSelection(category, idx);
+      });
+
+      itemsContainer.appendChild(item);
+    });
+
+    list.appendChild(itemsContainer);
+
+    // ── Toggle folder open/close ────────────────────────────────
+    folder.addEventListener("click", () => {
+      const isOpen = itemsContainer.style.display !== "none";
+      itemsContainer.style.display = isOpen ? "none" : "block";
+      arrow.innerText = isOpen ? "▶" : "▼";
+      folder.classList.toggle("tree-folder--open", !isOpen);
+    });
+  }
+
+  // Auto-open the first folder and select its first model
+  const firstFolder = list.querySelector(".tree-folder");
+  const firstItems = list.querySelector(".tree-items");
+  const firstItem  = list.querySelector(".tree-item");
+  if (firstFolder) {
+    firstItems.style.display = "block";
+    firstFolder.querySelector(".tree-arrow").innerText = "▼";
+    firstFolder.classList.add("tree-folder--open");
+  }
+  if (firstItem) {
+    firstItem.classList.add("tree-item--active");
+    activeItem = firstItem;
+    editorController.setSelection(
+      firstItem.dataset.category,
+      parseInt(firstItem.dataset.index, 10)
+    );
+  }
+});
+
+
+
+
+document.getElementById("export-json").onclick = () => placedObjectManager.exportJSON();
+document.getElementById("load-json").onclick = () => placedObjectManager.loadJSON(envParams.mode.biomeFile);
+
+if (envParams.mode.type === "runtime") {
+    placedObjectManager.loadJSON(envParams.mode.biomeFile);
+}
+
 
 const fogSystem = new FogSystem(scene, localChar);
 
@@ -510,12 +630,42 @@ const fogSystem = new FogSystem(scene, localChar);
 
 const mouseSensitivity = 0.002;
 
-document.body.addEventListener("click", () =>
-  document.body.requestPointerLock()
-);
+// In editor mode: rotate camera only while RIGHT mouse button is held (drag-to-orbit)
+let editorDragging = false;
+
+document.body.addEventListener("click", () => {
+  if (envParams.mode.type === "runtime") {
+    document.body.requestPointerLock();
+  }
+});
+
+document.addEventListener("mousedown", (e) => {
+  // Right-click (button 2) or middle-click (button 1) starts editor orbit
+  if (envParams.mode.type === "editor" && (e.button === 2 || e.button === 1)) {
+    editorDragging = true;
+    e.preventDefault();
+  }
+});
+
+document.addEventListener("mouseup", (e) => {
+  if (e.button === 2 || e.button === 1) {
+    editorDragging = false;
+  }
+});
+
+// Prevent context menu on right-click while in editor mode
+document.addEventListener("contextmenu", (e) => {
+  if (envParams.mode.type === "editor") e.preventDefault();
+});
 
 document.addEventListener("mousemove", (e) => {
-  if (document.pointerLockElement !== document.body) return;
+  // Runtime: require pointer lock
+  if (envParams.mode.type === "runtime" && document.pointerLockElement !== document.body) return;
+
+  // Editor: only orbit when dragging with right/middle mouse button
+  if (envParams.mode.type === "editor") {
+    if (!editorDragging) return;
+  }
 
   yaw -= e.movementX * mouseSensitivity;
   pitch -= e.movementY * mouseSensitivity;
@@ -526,6 +676,7 @@ document.addEventListener("mousemove", (e) => {
     pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
   }
 });
+
 
 /* =========================
    GAME LOOP
@@ -578,10 +729,10 @@ function animate() {
 
   // debugLines.geometry.computeBoundingSphere();
 
-  if (!envParams.spectator.active) {
+  if (!envParams.spectator.active && envParams.mode.type !== "editor") {
     localChar.update(dt);
   } else {
-    // Update spectator movement
+    // Update spectator / editor free-camera movement
     const keys = localChar.input.keys;
     const speed = envParams.spectator.speed;
     
@@ -608,14 +759,19 @@ function animate() {
       camera.position.z - camDir.z
     );
     
-    // Smoothly stop character if moving
-    localChar.body.setLinvel({ x: 0, y: localChar.body.linvel().y, z: 0 }, true);
-    localChar.playAnim("idle");
+    // Stop character physics while not in control
+    if (localChar.body) {
+      localChar.body.setLinvel({ x: 0, y: localChar.body.linvel().y, z: 0 }, true);
+    }
+    if (localChar.anim && envParams.mode.type !== "editor") {
+      localChar.playAnim("idle");
+    }
   }
+
 
   fogSystem.update(dt);
 
-  if (localChar.model && !envParams.spectator.active) {
+  if (localChar.model && !envParams.spectator.active && envParams.mode.type !== "editor") {
     const camDist = 1.5;
     const camHeight = 1.6;
 

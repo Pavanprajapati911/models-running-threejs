@@ -52,6 +52,7 @@ export class VegetationManager {
         "/models/environment/low_poly_trees/low_poly_tree_one.glb",
         "/models/environment/low_poly_trees/low_poly_tree_two.glb",
         "/models/environment/low_poly_trees/low_poly_tree_three.glb",
+        "/models/environment/low_poly_trees/test_tree.glb",
         "/models/environment/low_poly_trees_more/low_poly_more_tree_one.glb",
         "/models/environment/low_poly_trees_more/low_poly_more_tree_two.glb",
         "/models/environment/low_poly_trees_more/low_poly_more_tree_three.glb"
@@ -81,17 +82,25 @@ export class VegetationManager {
     const loadPromises = [];
 
     for (const [category, paths] of Object.entries(assetList)) {
-      paths.forEach(path => {
-        loadPromises.push(this.loadModel(category, path));
+      this.models.set(category, new Array(paths.length));
+      paths.forEach((path, index) => {
+        loadPromises.push(this.loadModel(category, path, index));
       });
     }
 
     await Promise.all(loadPromises);
+
+    // Clean up any undefined entries in case some models failed to load
+    for (const [category, modelsArray] of this.models.entries()) {
+      const validModels = modelsArray.filter(m => m !== undefined);
+      this.models.set(category, validModels);
+    }
+
     this.isLoaded = true;
     this.onLoadCallbacks.forEach(cb => cb());
   }
 
-  loadModel(category, path) {
+  loadModel(category, path, index) {
     return new Promise((resolve) => {
       this.loader.load(path, (gltf) => {
         const model = gltf.scene;
@@ -102,13 +111,44 @@ export class VegetationManager {
           }
         });
 
-        let mesh = null;
+        const meshes = [];
+
         model.traverse(child => {
-          if (child.isMesh && !mesh) mesh = child;
+          if (child.isMesh) {
+            // Fix materials (VERY IMPORTANT for leaves)
+            const mat = child.material;
+
+            if (mat) {
+              mat.transparent = true;
+              mat.alphaTest = 0.4;
+              mat.side = THREE.DoubleSide;
+              mat.depthWrite = false;
+            }
+
+            // Normalize geometry (scale + center)
+            child.geometry.computeBoundingBox();
+            const bbox = child.geometry.boundingBox;
+            const size = new THREE.Vector3();
+            bbox.getSize(size);
+
+            const maxSide = Math.max(size.x, size.y, size.z);
+            const scaleFactor = 1.0 / maxSide;
+
+            child.geometry.scale(scaleFactor, scaleFactor, scaleFactor);
+
+            child.geometry.computeBoundingBox();
+            const newBBox = child.geometry.boundingBox;
+            child.geometry.translate(0, -newBBox.min.y, 0);
+
+            meshes.push({
+              geometry: child.geometry,
+              material: mat
+            });
+          }
         });
 
-        if (!mesh) {
-          console.warn(`No mesh found in model ${path}`);
+        if (meshes.length === 0) {
+          console.warn(`No meshes found in model ${path}`);
           resolve();
           return;
         }
@@ -120,9 +160,9 @@ export class VegetationManager {
         bbox.getSize(size);
         const maxSide = Math.max(size.x, size.y, size.z);
         const scaleFactor = 1.0 / maxSide;
-        
+
         mesh.geometry.scale(scaleFactor, scaleFactor, scaleFactor);
-        
+
         // Re-center around base (optional, depends on model export)
         mesh.geometry.computeBoundingBox();
         const newBBox = mesh.geometry.boundingBox;
@@ -131,12 +171,14 @@ export class VegetationManager {
         if (!this.models.has(category)) {
           this.models.set(category, []);
         }
-        this.models.get(category).push({
-          geometry: mesh.geometry,
-          material: mesh.material,
-          mesh: mesh
-        });
-        console.log("🌿 Models loaded:", this.models);
+        // Extract human-readable name from path e.g. "grass_one" from ".../grass_one.glb"
+        const modelName = path.split("/").pop().replace(".glb", "");
+
+        this.models.get(category)[index] = {
+          meshes: meshes,
+          name: modelName
+        };
+
         resolve();
       }, undefined, (err) => {
         console.error(`Error loading model ${path}:`, err);
@@ -277,11 +319,22 @@ export class VegetationManager {
 
     const imeshes = [];
     for (const [modelData, matrices] of groups) {
-      const imesh = new THREE.InstancedMesh(modelData.geometry, modelData.material, matrices.length);
-      imesh.castShadow = true;
-      imesh.receiveShadow = true;
-      for (let i = 0; i < matrices.length; i++) imesh.setMatrixAt(i, matrices[i]);
-      imeshes.push(imesh);
+      modelData.meshes.forEach(sub => {
+        const imesh = new THREE.InstancedMesh(
+          sub.geometry,
+          sub.material,
+          matrices.length
+        );
+
+        imesh.castShadow = true;
+        imesh.receiveShadow = true;
+
+        for (let i = 0; i < matrices.length; i++) {
+          imesh.setMatrixAt(i, matrices[i]);
+        }
+
+        imeshes.push(imesh);
+      });
     }
     return imeshes;
   }
@@ -344,13 +397,22 @@ export class VegetationManager {
     }
 
     for (const [modelData, matrices] of groups) {
-      const imesh = new THREE.InstancedMesh(modelData.geometry, modelData.material, matrices.length);
-      imesh.castShadow = true;
-      imesh.receiveShadow = true;
-      for (let i = 0; i < matrices.length; i++) {
-        imesh.setMatrixAt(i, matrices[i]);
-      }
-      meshes.push(imesh);
+      modelData.meshes.forEach(sub => {
+        const imesh = new THREE.InstancedMesh(
+          sub.geometry,
+          sub.material,
+          matrices.length
+        );
+
+        imesh.castShadow = true;
+        imesh.receiveShadow = true;
+
+        for (let i = 0; i < matrices.length; i++) {
+          imesh.setMatrixAt(i, matrices[i]);
+        }
+
+        imeshes.push(imesh);
+      });
     }
 
     return meshes;

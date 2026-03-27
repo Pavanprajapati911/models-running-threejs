@@ -44,7 +44,9 @@ export class Character {
     this.maxHealth = 100;
     this.health = 100;
 
+    this.enabled = true;
     if (this.isLocal) this.input = new Input();
+
 
     this.model = null;
     this.mixer = null;
@@ -104,7 +106,7 @@ export class Character {
   // UPDATE
   // =====================
   update(dt) {
-    if (!this.model || !this.anim) return;
+    if (!this.model || !this.anim || !this.enabled) return;
 
     if (this.isLocal) this.updateLocal(dt);
     else this.updateRemote(dt);

@@ -47,3 +47,155 @@ body
 #progress{
   text-align:center;
 }
+
+/* ── Mode Indicator ── */
+#mode-indicator {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  padding: 5px 18px;
+  border-radius: 20px;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  pointer-events: none;
+  z-index: 200;
+  border: 1px solid rgba(255,255,255,0.12);
+  transition: background 0.3s;
+}
+
+/* ── Editor UI Panel ── */
+#editor-ui {
+  position: fixed;
+  top: 50px;
+  left: 12px;
+  color: #fff;
+  background: rgba(15, 15, 20, 0.85);
+  backdrop-filter: blur(8px);
+  padding: 16px;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 13px;
+  z-index: 200;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.1);
+  min-width: 200px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+
+#editor-ui h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 14px;
+  letter-spacing: 1px;
+  border-bottom: 1px solid rgba(255,255,255,0.15);
+  padding-bottom: 8px;
+}
+
+#editor-ui p {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+
+
+.editor-btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+#export-json, #load-json {
+  flex: 1;
+  padding: 7px 8px;
+  cursor: pointer;
+  background: rgba(80, 160, 255, 0.2);
+  border: 1px solid rgba(80, 160, 255, 0.4);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+#export-json:hover { background: rgba(80, 160, 255, 0.4); }
+#load-json:hover   { background: rgba(80, 200, 160, 0.4); border-color: rgba(80,200,160,0.5); }
+
+/* Key hint tooltip in editor */
+#editor-hint {
+  margin-top: 10px;
+  font-size: 10px;
+  opacity: 0.45;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+/* ── Model Tree (lil-gui style) ── */
+#model-list {
+  max-height: 260px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.04);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+
+.tree-folder {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.tree-folder:hover,
+.tree-folder--open {
+  background: rgba(255,255,255,0.12);
+}
+
+.tree-arrow {
+  font-size: 9px;
+  min-width: 12px;
+  color: rgba(255,255,255,0.55);
+  transition: transform 0.15s;
+}
+
+.tree-items {
+  background: rgba(0,0,0,0.15);
+}
+
+.tree-item {
+  padding: 6px 10px 6px 24px;
+  font-size: 11px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.75);
+  transition: background 0.12s, color 0.12s;
+  user-select: none;
+}
+
+.tree-item:hover {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+}
+
+.tree-item--active {
+  background: rgba(80, 200, 140, 0.22) !important;
+  color: #7fffc4 !important;
+  border-left: 2px solid #7fffc4;
+}
+
+
