@@ -7,199 +7,220 @@ import { VegetationManager } from "./environment/vegetation-manager.js";
 import alea from "alea";
 import { createNoise2D } from "simplex-noise";
 
-
-
-
-
 export class TerrainChunk {
-  constructor(x, z, size, segments, scene, world, envUniforms, envParams, calculateHeight, vegManager, placedObjectManager) {
+  constructor(manager, x, z, segments) {
+    this.manager = manager;
     this.x = x;
     this.z = z;
-    this.size = size;
     this.segments = segments;
-    this.scene = scene;
-    this.world = world;
-    this.envUniforms = envUniforms;
-    this.envParams = envParams;
-    this.calculateHeight = calculateHeight;
-    this.vegManager = vegManager;
-    this.placedObjectManager = placedObjectManager;
-    this.vegetation = [];
-    this.placedObjects = [];
 
     this.mesh = null;
     this.collider = null;
     this.body = null;
 
+    this.vegetation = [];
+    this.placedObjects = [];
+
     this.init();
   }
 
   init() {
-    // 1. Geometry with Skirts
-    const geometry = new THREE.PlaneGeometry(this.size, this.size, this.segments, this.segments);
-    geometry.rotateX(-Math.PI / 2);
+    const geometry = this.manager.getGeometry(this.segments).clone();
+
+    this.mesh = new THREE.Mesh(geometry, this.manager.sharedMaterial);
+    this.mesh.position.set(this.x, 0, this.z);
     
+    // Shadows removed
+
+    this.manager.scene.add(this.mesh);
+
+    this.generateHeightCPU(geometry); // TEMP (can be removed when GPU displacement used)
+
+    this.tryCreatePhysics();
+    this.spawnVegetation();
+  }
+
+  generateHeightCPU(geometry) {
     const pos = geometry.attributes.position;
     for (let i = 0; i < pos.count; i++) {
-        const localX = pos.getX(i);
-        const localZ = pos.getZ(i);
-        const worldX = this.x + localX;
-        const worldZ = this.z + localZ;
-        
-        let y = this.calculateHeight(worldX, worldZ);
-        
-        pos.setY(i, y);
-    }
+      const localX = pos.getX(i);
+      const localZ = pos.getZ(i);
+      const worldX = this.x + localX;
+      const worldZ = this.z + localZ;
 
-    
+      const y = this.manager.calculateHeight(worldX, worldZ);
+      pos.setY(i, y);
+    }
     geometry.computeVertexNormals();
-
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        mossyGrassTex: this.envParams.textures.mossyGrass,
-        wildGrassTex: this.envParams.textures.wildGrass,
-        forestFloorTex: this.envParams.textures.forestFloor,
-        soilGroundTex: this.envParams.textures.soilGround,
-        dirtGroundTex: this.envParams.textures.dirtGround,
-        forestPathTex: this.envParams.textures.forestPath,
-        rockTex: this.envParams.textures.rock,
-        uTextureScale: { value: this.envParams.terrain.texScale },
-        uLightingIntensity: { value: this.envParams.terrain.intensity },
-        uSpecularStrength: { value: this.envParams.terrain.specular },
-        uLightDir: { value: new THREE.Vector3() },
-        uLightColor: { value: new THREE.Color(1, 1, 1) },
-        uCameraPos: { value: new THREE.Vector3() },
-        uFogNear: this.envUniforms.uFogNear,
-        uFogFar: this.envUniforms.uFogFar,
-        uFogColor: this.envUniforms.uFogColor,
-        uTime: this.envUniforms.uTime,
-        uGrassStrength: { value: this.envParams.terrain.grassTextureStrength },
-        uDirtStrength: { value: this.envParams.terrain.dirtTextureStrength },
-        uPathStrength: { value: this.envParams.terrain.pathStrength },
-        uShowBiomeDebug: this.envUniforms.uShowBiomeDebug,
-        uDryThreshold: this.envUniforms.uDryThreshold,
-        uGrassThreshold: this.envUniforms.uGrassThreshold,
-        uForestThreshold: this.envUniforms.uForestThreshold,
-        uBiomeScale: { value: this.envParams.biome.scale },
-        uGlobalSeed: { value: this.envParams.random.seed },
-      },
-      vertexShader,
-      fragmentShader,
-    });
-
-    this.mesh = new THREE.Mesh(geometry, material);
-    this.mesh.position.set(this.x, 0, this.z);
-    this.mesh.receiveShadow = true;
-    this.scene.add(this.mesh);
-
-    // 2. Physics (Only for HIGH LOD chunks within small radius if needed, or all)
-    // Use GUI LOD distance if enabled
-    const lodThreshold = this.envParams.performance.enableLOD ? 64 : 16;
-    if (this.segments >= lodThreshold) {
-        this.createPhysics(geometry);
-        this.spawnVegetation();
-    }
+    pos.needsUpdate = true;
   }
 
-  spawnVegetation() {
-      if (!this.vegManager) return;
-      
-      // Procedural Mode
-      if (this.envParams.mode && this.envParams.mode.type === "procedural") {
-          const instances = this.vegManager.getVegetationForChunk(this.x, this.z, this.size);
-          instances.forEach(mesh => {
-              mesh.position.set(this.x, 0, this.z);
-              this.scene.add(mesh);
-              this.vegetation.push(mesh);
-          });
-      }
+  tryCreatePhysics() {
+    const dist = this.manager.camera.position.distanceTo(this.mesh.position);
+    if (dist > 50) return; // only near chunks
 
-      // Static Objects (Runtime/Editor)
-      if (this.placedObjectManager) {
-          const cx = Math.floor(this.x / this.size);
-          const cz = Math.floor(this.z / this.size);
-          const objects = this.placedObjectManager.getObjectsForChunk(cx, cz);
-          objects.forEach(obj => this.spawnPlacedObject(obj));
-      }
-
-  }
-
-  spawnPlacedObject(obj) {
-      const models = this.vegManager.models.get(obj.type) || this.vegManager.models.get("jungleTrees");
-      if (!models || models.length === 0) return;
-
-      // Use the stored modelIndex, clamp to array bounds gracefully
-      const idx = Math.min(obj.modelIndex ?? 0, models.length - 1);
-      const modelData = models[idx];
-
-      if (!modelData) return; // Prevent crashes if model failed to load or index is invalid
-
-      const group = new THREE.Group();
-
-      if (modelData.meshes) {
-        modelData.meshes.forEach(sub => {
-          const mesh = new THREE.Mesh(sub.geometry, sub.material);
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          group.add(mesh);
-        });
-      }
-
-      group.position.set(obj.position[0], obj.position[1], obj.position[2]);
-      group.rotation.set(obj.rotation[0], obj.rotation[1], obj.rotation[2]);
-      group.scale.set(obj.scale[0], obj.scale[1], obj.scale[2]);
-
-      group.userData.isPlacedObject = true;
-      group.userData.placedObjectData = obj;
-
-      this.scene.add(group);
-      this.placedObjects.push({ data: obj, mesh: group });
-  }
-
-
-  removePlacedObject(obj) {
-      const idx = this.placedObjects.findIndex(po => po.data === obj);
-      if (idx !== -1) {
-          this.scene.remove(this.placedObjects[idx].mesh);
-          this.placedObjects.splice(idx, 1);
-      }
-  }
-
-  createPhysics(geometry) {
+    const geometry = this.mesh.geometry;
     const vertices = geometry.attributes.position.array;
     const indices = geometry.index.array;
+
     const bodyDesc = Rapier.RigidBodyDesc.fixed().setTranslation(this.x, 0, this.z);
-    this.body = this.world.createRigidBody(bodyDesc);
+    this.body = this.manager.world.createRigidBody(bodyDesc);
+
     const colliderDesc = Rapier.ColliderDesc.trimesh(
       new Float32Array(vertices),
       new Uint32Array(indices)
     ).setFriction(1);
-    this.collider = this.world.createCollider(colliderDesc, this.body);
+
+    this.collider = this.manager.world.createCollider(colliderDesc, this.body);
+  }
+
+  spawnVegetation() {
+    const p = this.manager.envParams;
+    
+    // 1. Procedural Mode
+    if (p.mode && p.mode.type === "procedural" && this.manager.vegManager) {
+      const instances = this.manager.vegManager.getVegetationForChunk(
+        this.x,
+        this.z,
+        this.manager.chunkSize
+      );
+
+      instances.forEach(mesh => {
+        mesh.position.set(this.x, 0, this.z);
+        this.manager.scene.add(mesh);
+        this.vegetation.push(mesh);
+      });
+    }
+
+    // 2. Editor / Runtime Mode (jungle.json)
+    if (this.manager.placedObjectManager) {
+      const cx = Math.floor(this.x / this.manager.chunkSize);
+      const cz = Math.floor(this.z / this.manager.chunkSize);
+      const objects = this.manager.placedObjectManager.getObjectsForChunk(cx, cz);
+      objects.forEach(obj => this.spawnPlacedObject(obj));
+    }
+  }
+
+  spawnPlacedObject(obj) {
+    if (!this.manager.vegManager) return;
+    const models = this.manager.vegManager.models.get(obj.type) || this.manager.vegManager.models.get("jungleTrees");
+    if (!models || models.length === 0) return;
+
+    const idx = Math.min(obj.modelIndex ?? 0, models.length - 1);
+    const modelData = models[idx];
+    if (!modelData) return; 
+
+    const group = new THREE.Group();
+
+    if (modelData.meshes) {
+      modelData.meshes.forEach(sub => {
+        const mesh = new THREE.Mesh(sub.geometry, sub.material);
+        // Shadows removed
+        group.add(mesh);
+      });
+    }
+
+    group.position.set(obj.position[0], obj.position[1], obj.position[2]);
+    group.rotation.set(obj.rotation[0], obj.rotation[1], obj.rotation[2]);
+    group.scale.set(obj.scale[0], obj.scale[1], obj.scale[2]);
+
+    group.userData.isPlacedObject = true;
+    group.userData.placedObjectData = obj;
+    
+    group.updateMatrix();
+    group.matrixAutoUpdate = false;
+
+    this.manager.scene.add(group);
+    this.placedObjects.push({ data: obj, mesh: group });
+  }
+
+  removePlacedObject(obj) {
+    const idx = this.placedObjects.findIndex(po => po.data === obj);
+    if (idx !== -1) {
+      this.manager.scene.remove(this.placedObjects[idx].mesh);
+      this.placedObjects.splice(idx, 1);
+    }
   }
 
   dispose() {
     if (this.mesh) {
       this.mesh.geometry.dispose();
-      this.mesh.material.dispose();
-      this.scene.remove(this.mesh);
+      this.manager.scene.remove(this.mesh);
     }
+
     this.vegetation.forEach(mesh => {
-        mesh.geometry.dispose();
-        mesh.material.dispose();
-        this.scene.remove(mesh);
+      this.manager.scene.remove(mesh);
     });
-    this.vegetation = [];
+
     this.placedObjects.forEach(po => {
-        this.scene.remove(po.mesh);
+      this.manager.scene.remove(po.mesh);
     });
+
+    this.vegetation = [];
     this.placedObjects = [];
 
     if (this.collider) {
-      this.world.removeCollider(this.collider, true);
+      this.manager.world.removeCollider(this.collider, true);
     }
+
     if (this.body) {
-        this.world.removeRigidBody(this.body);
+      this.manager.world.removeRigidBody(this.body);
     }
+  }
+
+  updateLOD(playerPosition, frustum) {
+    if (!this.mesh) return;
+
+    this.manager.tempVec.set(this.x, 0, this.z);
+    const dist = playerPosition.distanceTo(this.manager.tempVec);
+
+    if (frustum) {
+      const sphereRadius = (this.manager.chunkSize * 0.5) * 1.414 + 15;
+      const sphere = new THREE.Sphere(this.manager.tempVec, sphereRadius);
+      if (!frustum.intersectsSphere(sphere)) {
+          this.mesh.visible = false;
+          this.vegetation.forEach(v => v.visible = false);
+          this.placedObjects.forEach(po => po.mesh.visible = false);
+          return;
+      }
+    }
+
+    this.mesh.visible = true;
+    this.placedObjects.forEach(po => po.mesh.visible = true);
+
+    const p = this.manager.envParams;
+    if (!p.performance.enableLOD) {
+        this.vegetation.forEach(v => { v.visible = true; if(v.isInstancedMesh && v.userData.maxCount) v.count = v.userData.maxCount; });
+        return;
+    }
+
+    const lodNear = p.terrain.lodDistNear || 50;
+    const lodMid = p.terrain.lodDistMid || 120;
+    const densityMult = p.performance.globalDensityMultiplier !== undefined ? p.performance.globalDensityMultiplier : 1.0;
+
+    this.vegetation.forEach(mesh => {
+        if (!mesh.isInstancedMesh) return;
+        const maxCount = mesh.userData.maxCount;
+        if (!maxCount) return;
+
+        const isTree = mesh.userData.isTree;
+        
+        let targetRatio = 1.0;
+        if (dist > lodMid) {
+            targetRatio = isTree ? 0.0 : 0.1; 
+        } else if (dist > lodNear) {
+            targetRatio = 0.5; 
+        }
+        
+        let count = Math.floor(maxCount * targetRatio * densityMult);
+        
+        if (count <= 0) {
+            mesh.visible = false;
+        } else {
+            mesh.visible = true;
+            mesh.count = Math.min(count, maxCount);
+        }
+    });
   }
 }
 
@@ -208,144 +229,181 @@ export class ChunkManager {
     this.scene = scene;
     this.world = world;
     this.camera = camera;
-    this.noise2D = noise2D; // Initial one, will be replaced by seeded
-    this.rng = alea(envParams.random.seed);
-    this.noise2D_seeded = createNoise2D(this.rng);
+
     this.envUniforms = envUniforms;
     this.envParams = envParams;
     this.placedObjectManager = placedObjectManager;
 
-    this.vegManager = new VegetationManager(scene, this.calculateHeight.bind(this), envParams);
-    this.vegManager.loadModels().then(() => {
-        this.refreshChunks();
-    });
-
-    this.chunks = new Map();
     this.chunkSize = envParams.terrain.chunkSize;
-    this.needsRefresh = false;
-    
-    // Initial textures (need to be loaded in main and passed)
+    this.chunks = new Map();
+
+    this.tempVec = new THREE.Vector3();
+    this.geometryCache = {};
+
+    // Seeded noise
+    this.rng = alea(envParams.random.seed);
+    this.noise2D = createNoise2D(this.rng);
+
+    // ✅ Load textures ONCE
     const loader = new THREE.TextureLoader();
     this.envParams.textures = {
-        mossyGrass: { value: loader.load("/textures/mossy_grass/Mossy_Grass_vcjmej0s_2K_BaseColor.jpg") },
-        wildGrass: { value: loader.load("/textures/wild_grass/Wild_Grass_sfknaeoa_2K_BaseColor.jpg") },
-        forestFloor: { value: loader.load("/textures/forest_floor/Forest_Floor_vktfeilaw_2K_BaseColor.jpg") },
-        soilGround: { value: loader.load("/textures/soil_ground/Soil_Ground_xdhhdhl_2K_BaseColor.jpg") },
-        dirtGround: { value: loader.load("/textures/dirt_ground/Dirt_Ground_xdhhdgq_2K_BaseColor.jpg") },
-        forestPath: { value: loader.load("/textures/forest_path/Forest_Path_ugsnfawlw_2K_BaseColor.jpg") },
-        rock: { value: loader.load("/textures/two_k/rock.jpg") }
+      mossyGrass: { value: loader.load("/textures/mossy_grass/Mossy_Grass_vcjmej0s_2K_BaseColor.jpg") },
+      wildGrass: { value: loader.load("/textures/wild_grass/Wild_Grass_sfknaeoa_2K_BaseColor.jpg") },
+      forestFloor: { value: loader.load("/textures/forest_floor/Forest_Floor_vktfeilaw_2K_BaseColor.jpg") },
+      soilGround: { value: loader.load("/textures/soil_ground/Soil_Ground_xdhhdhl_2K_BaseColor.jpg") },
+      dirtGround: { value: loader.load("/textures/dirt_ground/Dirt_Ground_xdhhdgq_2K_BaseColor.jpg") },
+      forestPath: { value: loader.load("/textures/forest_path/Forest_Path_ugsnfawlw_2K_BaseColor.jpg") },
+      rock: { value: loader.load("/textures/two_k/rock.jpg") }
     };
+
     Object.values(this.envParams.textures).forEach(t => {
-        t.value.wrapS = t.value.wrapT = THREE.RepeatWrapping;
-        t.value.anisotropy = 16;
+      t.value.wrapS = t.value.wrapT = THREE.RepeatWrapping;
+      t.value.anisotropy = 8; // reduced from 16 (better perf)
     });
 
+    // Merge envUniforms with terrain-specific uniforms
+    this.envUniforms = {
+      ...this.envUniforms,
+      mossyGrassTex: this.envParams.textures.mossyGrass,
+      wildGrassTex: this.envParams.textures.wildGrass,
+      forestFloorTex: this.envParams.textures.forestFloor,
+      soilGroundTex: this.envParams.textures.soilGround,
+      dirtGroundTex: this.envParams.textures.dirtGround,
+      forestPathTex: this.envParams.textures.forestPath,
+      rockTex: this.envParams.textures.rock,
+      uTextureScale: { value: this.envParams.terrain.texScale },
+      uLightingIntensity: { value: this.envParams.terrain.intensity },
+      uSpecularStrength: { value: this.envParams.terrain.specular },
+      uLightDir: { value: new THREE.Vector3() },
+      uLightColor: { value: new THREE.Color(1, 1, 1) },
+      uCameraPos: { value: new THREE.Vector3() },
+      uGrassStrength: { value: this.envParams.terrain.grassTextureStrength },
+      uDirtStrength: { value: this.envParams.terrain.dirtTextureStrength },
+      uPathStrength: { value: this.envParams.terrain.pathStrength },
+      uBiomeScale: { value: this.envParams.biome.scale },
+      uGlobalSeed: { value: this.envParams.random.seed },
+    };
 
+    // ✅ SHARED MATERIAL (BIG WIN)
+    this.sharedMaterial = new THREE.ShaderMaterial({
+      uniforms: this.envUniforms,
+      vertexShader,
+      fragmentShader,
+    });
 
-    this.update(new THREE.Vector3(0, 0, 0));
+    // Vegetation
+    this.vegManager = new VegetationManager(
+      scene,
+      this.calculateHeight.bind(this),
+      envParams
+    );
+
+    this.vegManager.loadModels().then(() => {
+      this.update(new THREE.Vector3());
+    });
+  }
+
+  getGeometry(segments) {
+    if (!this.geometryCache[segments]) {
+      const geo = new THREE.PlaneGeometry(
+        this.chunkSize,
+        this.chunkSize,
+        segments,
+        segments
+      );
+      geo.rotateX(-Math.PI / 2);
+      this.geometryCache[segments] = geo;
+    }
+    return this.geometryCache[segments];
   }
 
   refreshChunks() {
-      this.needsRefresh = true;
+    for (const chunk of this.chunks.values()) {
+        chunk.dispose();
+    }
+    this.chunks.clear();
+    this.update(this.camera.position);
   }
 
-
   calculateHeight(x, z) {
-    const params = this.envParams.terrain;
-    const lowland = this.envParams.lowland;
-    
-    // Layer 1: Large scale smooth elevation changes
-    const n1 = this.noise2D_seeded(x * lowland.baseFreq, z * lowland.baseFreq);
-    const base = n1 * lowland.baseAmp;
-    
-    // Layer 2: Medium scale gentle rolling hills
-    const n2 = this.noise2D_seeded(x * lowland.hillFreq, z * lowland.hillFreq);
-    const hills = n2 * lowland.hillAmp;
-    
-    // Layer 3: Small scale surface detail
-    const n3 = this.noise2D_seeded(x * lowland.detailFreq, z * lowland.detailFreq);
-    const detail = n3 * lowland.detailAmp;
-    
-    // Combine layers
-    const finalH = base + hills + detail;
+    const p = this.envParams.terrain;
+    const l = this.envParams.lowland;
 
-    return finalH * params.heightMult;
+    const n1 = this.noise2D(x * l.baseFreq, z * l.baseFreq);
+    const n2 = this.noise2D(x * l.hillFreq, z * l.hillFreq);
+    const n3 = this.noise2D(x * l.detailFreq, z * l.detailFreq);
+
+    return (n1 * l.baseAmp + n2 * l.hillAmp + n3 * l.detailAmp) * p.heightMult;
   }
 
   update(playerPosition) {
-    if (this.needsRefresh) {
-        this.needsRefresh = false;
-        for (const chunk of this.chunks.values()) {
-            chunk.dispose();
-        }
-        this.chunks.clear();
-    }
+    // ✅ GLOBAL uniform updates (ONCE)
+    this.envUniforms.uCameraPos.value.copy(this.camera.position);
+    this.envUniforms.uLightDir.value
+      .copy(this.envUniforms.uSunPos.value)
+      .normalize();
 
+    // Fast sync GUI params
+    this.envUniforms.uTextureScale.value = this.envParams.terrain.texScale;
+    this.envUniforms.uGrassStrength.value = this.envParams.terrain.grassTextureStrength;
+    this.envUniforms.uDirtStrength.value = this.envParams.terrain.dirtTextureStrength;
+    this.envUniforms.uPathStrength.value = this.envParams.terrain.pathStrength;
+    this.envUniforms.uDryThreshold.value = this.envParams.biome.dryThreshold;
+    this.envUniforms.uGrassThreshold.value = this.envParams.biome.grassThreshold;
+    this.envUniforms.uForestThreshold.value = this.envParams.biome.forestThreshold;
+    this.envUniforms.uBiomeScale.value = this.envParams.biome.scale;
+    this.envUniforms.uGlobalSeed.value = this.envParams.random.seed;
+
+    const projScreenMatrix = new THREE.Matrix4();
+    projScreenMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    const frustum = new THREE.Frustum();
+    frustum.setFromProjectionMatrix(projScreenMatrix);
 
     const currX = Math.floor(playerPosition.x / this.chunkSize);
     const currZ = Math.floor(playerPosition.z / this.chunkSize);
     const radius = this.envParams.terrain.renderDist;
 
-    const activeKeys = new Set();
+    const active = new Set();
 
     for (let x = currX - radius; x <= currX + radius; x++) {
       for (let z = currZ - radius; z <= currZ + radius; z++) {
         const key = `${x},${z}`;
-        activeKeys.add(key);
+        active.add(key);
 
         const chunkX = x * this.chunkSize;
         const chunkZ = z * this.chunkSize;
-        const dist = playerPosition.distanceTo(new THREE.Vector3(chunkX, 0, chunkZ));
+
+        this.tempVec.set(chunkX, 0, chunkZ);
+        const dist = playerPosition.distanceTo(this.tempVec);
 
         let lod = 16;
         if (dist < this.envParams.terrain.lodDistNear) lod = 128;
         else if (dist < this.envParams.performance.lodFar) lod = 64;
 
-        if (!this.chunks.has(key)) {
-          this.chunks.set(key, new TerrainChunk(chunkX, chunkZ, this.chunkSize, lod, this.scene, this.world, this.envUniforms, this.envParams, this.calculateHeight.bind(this), this.vegManager, this.placedObjectManager));
-        } else {
-            // Check for LOD change
-            const chunk = this.chunks.get(key);
-            if (chunk.segments !== lod) {
-                chunk.dispose();
-                this.chunks.set(key, new TerrainChunk(chunkX, chunkZ, this.chunkSize, lod, this.scene, this.world, this.envUniforms, this.envParams, this.calculateHeight.bind(this), this.vegManager, this.placedObjectManager));
-            }
+        const existing = this.chunks.get(key);
+
+        if (!existing) {
+          this.chunks.set(key, new TerrainChunk(this, chunkX, chunkZ, lod));
+        } else if (existing.segments !== lod) {
+          existing.dispose();
+          this.chunks.set(key, new TerrainChunk(this, chunkX, chunkZ, lod));
         }
       }
     }
 
-    // Unload distant chunks
+    // Remove old chunks
     for (const [key, chunk] of this.chunks) {
-      if (!activeKeys.has(key) ) {
+      if (!active.has(key)) {
         chunk.dispose();
         this.chunks.delete(key);
+      } else {
+        // Frustum & Density Culling
+        chunk.updateLOD(playerPosition, frustum);
       }
-    }
-    
-    // Update uniforms for each chunk
-    for (const chunk of this.chunks.values()) {
-        chunk.mesh.material.uniforms.uCameraPos.value.copy(this.camera.position);
-        chunk.mesh.material.uniforms.uLightDir.value.copy(this.envUniforms.uSunPos.value).normalize();
-        chunk.mesh.material.uniforms.uTextureScale.value = this.envParams.terrain.texScale;
-        chunk.mesh.material.uniforms.uGrassStrength.value = this.envParams.terrain.grassTextureStrength;
-        chunk.mesh.material.uniforms.uDirtStrength.value = this.envParams.terrain.dirtTextureStrength;
-        chunk.mesh.material.uniforms.uPathStrength.value = this.envParams.terrain.pathStrength;
-        chunk.mesh.material.uniforms.uDryThreshold.value = this.envParams.biome.dryThreshold;
-        chunk.mesh.material.uniforms.uGrassThreshold.value = this.envParams.biome.grassThreshold;
-        chunk.mesh.material.uniforms.uForestThreshold.value = this.envParams.biome.forestThreshold;
-        chunk.mesh.material.uniforms.uBiomeScale.value = this.envParams.biome.scale;
-        chunk.mesh.material.uniforms.uGlobalSeed.value = this.envParams.random.seed;
     }
   }
 
   getHeight(x, z) {
-      return this.calculateHeight(x, z);
+    return this.calculateHeight(x, z);
   }
 }
-
-function mix(a, b, t) { return a * (1 - t) + b * t; }
-function smoothstep(e0, e1, x) {
-    const t = Math.min(Math.max((x - e0) / (e1 - e0), 0), 1);
-    return t * t * (3 - 2 * t);
-}
-

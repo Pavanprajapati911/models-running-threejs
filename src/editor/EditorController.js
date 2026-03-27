@@ -180,6 +180,7 @@ export class EditorController {
       }
 
       if (changed) {
+        this.selectedObject.updateMatrix();
         this.selectionBox.update();
       }
     });

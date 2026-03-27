@@ -145,7 +145,10 @@ const envParams = {
 };
 
 
-
+// ✅ REUSABLE VECTORS (NO GC)
+const tempVec1 = new THREE.Vector3();
+const tempVec2 = new THREE.Vector3();
+const tempVec3 = new THREE.Vector3();
 
 const envUniforms = {
   uTime: { value: 0 },
@@ -203,15 +206,8 @@ const scene = new THREE.Scene();
 const sun = new THREE.DirectionalLight(0xffffff, 2);
 sun.position.set(50, 100, 50);
 
-sun.castShadow = true;
+// Shadows temporarily disabled
 
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.near = 1;
-sun.shadow.camera.far = 300;
-sun.shadow.camera.left = -100;
-sun.shadow.camera.right = 100;
-sun.shadow.camera.top = 100;
-sun.shadow.camera.bottom = -100;
 
 scene.add(sun);
 scene.add(sun.target);
@@ -325,10 +321,16 @@ const canvas = document.querySelector(".webgl");
 const renderer = new THREE.WebGLRenderer({
   canvas,
   antialias: true,
+  powerPreference: "high-performance",
 });
 
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
+
+// ✅ CAP pixel ratio (HUGE)
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+
+// renderer.shadowMap.enabled = true;
+// renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 /* =========================
    PERFORMANCE MONITOR
@@ -366,8 +368,10 @@ sunFolder.add(sun.position, "z", -500, 500, 1);
 const glowFolder = gui.addFolder("✨ Glow");
 glowFolder.add(envParams.sun, "glowIntensity", 0, 5, 0.1);
 glowFolder.add(envParams.sun, "glowSize", 1, 100, 1).onChange((v) => {
-  sunGlow.geometry.dispose();
-  sunGlow.geometry = new THREE.SphereGeometry(v, 32, 32);
+  if (sunGlow.geometry.parameters.radius !== v) {
+    sunGlow.geometry.dispose();
+    sunGlow.geometry = new THREE.SphereGeometry(v, 16, 16); // lower segments
+  }
 });
 
 
@@ -484,7 +488,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyE") {
     modeController.toggleMode();
   }
-  
+
   if (e.ctrlKey && e.code === "KeyM") {
     envParams.spectator.active = !envParams.spectator.active;
     e.preventDefault();
@@ -592,7 +596,7 @@ vegManager.onLoad(() => {
   // Auto-open the first folder and select its first model
   const firstFolder = list.querySelector(".tree-folder");
   const firstItems = list.querySelector(".tree-items");
-  const firstItem  = list.querySelector(".tree-item");
+  const firstItem = list.querySelector(".tree-item");
   if (firstFolder) {
     firstItems.style.display = "block";
     firstFolder.querySelector(".tree-arrow").innerText = "▼";
@@ -615,7 +619,7 @@ document.getElementById("export-json").onclick = () => placedObjectManager.expor
 document.getElementById("load-json").onclick = () => placedObjectManager.loadJSON(envParams.mode.biomeFile);
 
 if (envParams.mode.type === "runtime") {
-    placedObjectManager.loadJSON(envParams.mode.biomeFile);
+  placedObjectManager.loadJSON(envParams.mode.biomeFile);
 }
 
 
@@ -684,28 +688,23 @@ document.addEventListener("mousemove", (e) => {
 
 function animate() {
   requestAnimationFrame(animate);
-  const elapsedTime = clock.getElapsedTime()
+
+  const elapsedTime = clock.getElapsedTime();
   envUniforms.uTime.value = elapsedTime;
 
-  const lightDir = new THREE.Vector3()
-    .subVectors(sun.position, sun.target.position)
-    .normalize();
+  // ✅ NO new Vector3
+  tempVec1.subVectors(sun.position, sun.target.position).normalize();
+
   sunGroup.position.copy(sun.position);
   envUniforms.uSunPos.value.copy(sun.position);
 
-  // make glow face camera
   sunGlow.lookAt(camera.position);
   sunGlow.material.uniforms.uIntensity.value =
     envParams.sun.glowIntensity + Math.sin(elapsedTime * 2.0) * 0.2;
 
   chunkManager.update(camera.position);
 
-  sky.position.copy(camera.position); // sky follows camera
-
-
-
-
-
+  sky.position.copy(camera.position);
 
   perf.begin();
 
@@ -715,59 +714,34 @@ function animate() {
 
   world.step();
 
-  const { vertices, colors } = world.debugRender();
-
-  // debugLines.geometry.setAttribute(
-  //   "position",
-  //   new THREE.BufferAttribute(vertices, 3)
-  // );
-
-  // debugLines.geometry.setAttribute(
-  //   "color",
-  //   new THREE.BufferAttribute(colors, 4)
-  // );
-
-  // debugLines.geometry.computeBoundingSphere();
-
   if (!envParams.spectator.active && envParams.mode.type !== "editor") {
     localChar.update(dt);
   } else {
-    // Update spectator / editor free-camera movement
     const keys = localChar.input.keys;
     const speed = envParams.spectator.speed;
-    
-    const camDir = new THREE.Vector3(
+
+    // ✅ reuse vectors
+    tempVec1.set(
       Math.sin(yaw) * Math.cos(pitch),
       Math.sin(pitch),
       Math.cos(yaw) * Math.cos(pitch)
     );
-    
-    const rightDir = new THREE.Vector3()
-      .crossVectors(new THREE.Vector3(0, 1, 0), camDir)
-      .normalize();
 
-    if (keys["KeyW"]) camera.position.addScaledVector(camDir, -speed * dt);
-    if (keys["KeyS"]) camera.position.addScaledVector(camDir, speed * dt);
-    if (keys["KeyA"]) camera.position.addScaledVector(rightDir, -speed * dt);
-    if (keys["KeyD"]) camera.position.addScaledVector(rightDir, speed * dt);
+    tempVec2.crossVectors(new THREE.Vector3(0, 1, 0), tempVec1).normalize();
+
+    if (keys["KeyW"]) camera.position.addScaledVector(tempVec1, -speed * dt);
+    if (keys["KeyS"]) camera.position.addScaledVector(tempVec1, speed * dt);
+    if (keys["KeyA"]) camera.position.addScaledVector(tempVec2, -speed * dt);
+    if (keys["KeyD"]) camera.position.addScaledVector(tempVec2, speed * dt);
     if (keys["Space"]) camera.position.y += speed * dt;
     if (keys["ShiftLeft"]) camera.position.y -= speed * dt;
 
     camera.lookAt(
-      camera.position.x - camDir.x,
-      camera.position.y - camDir.y,
-      camera.position.z - camDir.z
+      camera.position.x - tempVec1.x,
+      camera.position.y - tempVec1.y,
+      camera.position.z - tempVec1.z
     );
-    
-    // Stop character physics while not in control
-    if (localChar.body) {
-      localChar.body.setLinvel({ x: 0, y: localChar.body.linvel().y, z: 0 }, true);
-    }
-    if (localChar.anim && envParams.mode.type !== "editor") {
-      localChar.playAnim("idle");
-    }
   }
-
 
   fogSystem.update(dt);
 
@@ -775,7 +749,7 @@ function animate() {
     const camDist = 1.5;
     const camHeight = 1.6;
 
-    const camDir = new THREE.Vector3(
+    tempVec1.set(
       Math.sin(yaw) * Math.cos(pitch),
       Math.sin(pitch),
       Math.cos(yaw) * Math.cos(pitch)
@@ -783,7 +757,7 @@ function animate() {
 
     camera.position
       .copy(localChar.model.position)
-      .addScaledVector(camDir, camDist);
+      .addScaledVector(tempVec1, camDist);
 
     camera.position.y += camHeight;
 
@@ -795,7 +769,6 @@ function animate() {
   }
 
   renderer.render(scene, camera);
-
   perf.end();
 }
 
