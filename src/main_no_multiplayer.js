@@ -15,6 +15,8 @@ import { createNoise2D } from "simplex-noise";
 import { PlacedObjectManager } from "./editor/PlacedObjectManager.js";
 import { EditorController } from "./editor/EditorController.js";
 import { ModeController } from "./core/ModeController.js";
+import { CloudSystem } from "./environment/CloudSystem.js";
+import { WeatherSystem } from "./environment/WeatherSystem.js";
 
 
 const gui = new GUI();
@@ -105,26 +107,7 @@ const envParams = {
   debug: {
     showBiome: false
   },
-  grass: {
-    scaleMin: 0.4,
-    scaleMax: 0.5,
-    patchiness: 0.5,
-    fadeDistance: 150,
-  },
-  bush: {
-    noiseScale: 0.05,
-    scaleMin: 0.5,
-    scaleMax: 1.5,
-  },
-  tree: {
-    noiseScale: 0.01,
-    scaleMin: 2.0,
-    scaleMax: 5.0,
-  },
-  rock: {
-    scaleMin: 0.5,
-    scaleMax: 3.0,
-  },
+
   performance: {
     enableLOD: true,
     lodFar: 50,
@@ -140,7 +123,11 @@ const envParams = {
   },
   mode: {
     type: "runtime", // "editor" | "runtime" | "procedural"
-    biomeFile: "/biome-coordinates/jungle.json"
+    biomeFile: "/biome-coordinates/map_full.json"
+  },
+  interaction: {
+    radius: 1.5,
+    strength: 0.8
   }
 };
 
@@ -271,21 +258,21 @@ const sunGlow = new THREE.Mesh(
 
 sunGroup.add(sunGlow);
 
-// 🌌 SKY DOME
-const skyGeo = new THREE.SphereGeometry(450, 32, 32);
-const skyMat = new THREE.ShaderMaterial({
-  vertexShader: skyVert,
-  fragmentShader: skyFrag,
-  uniforms: {
-    uSunPosition: envUniforms.uSunPos,
-    uZenithColor: envUniforms.uZenithColor,
-    uHorizonColor: envUniforms.uHorizonColor
-  },
-  side: THREE.BackSide,
-  depthWrite: false
-});
-const sky = new THREE.Mesh(skyGeo, skyMat);
-scene.add(sky);
+// // 🌌 SKY DOME
+// const skyGeo = new THREE.SphereGeometry(450, 32, 32);
+// const skyMat = new THREE.ShaderMaterial({
+//   vertexShader: skyVert,
+//   fragmentShader: skyFrag,
+//   uniforms: {
+//     uSunPosition: envUniforms.uSunPos,
+//     uZenithColor: envUniforms.uZenithColor,
+//     uHorizonColor: envUniforms.uHorizonColor
+//   },
+//   side: THREE.BackSide,
+//   depthWrite: false
+// });
+// const sky = new THREE.Mesh(skyGeo, skyMat);
+// scene.add(sky);
 
 
 /* =========================
@@ -398,6 +385,12 @@ const raycaster = new THREE.Raycaster();
 const editorController = new EditorController(scene, camera, raycaster, chunkManager, placedObjectManager);
 const modeController = new ModeController({ envParams, character: null, editorController }); // character set later
 
+const cloudSystem = new CloudSystem(scene, envParams);
+const weatherSystem = new WeatherSystem(envParams);
+
+cloudSystem.addToGui(gui);
+weatherSystem.addToGui(gui);
+
 
 
 const advBiomeFolder = gui.addFolder("🌍 Advanced Biomes");
@@ -445,18 +438,7 @@ const randomFolder = gui.addFolder("🎲 Randomness");
 randomFolder.add(envParams.random, "seed", 0, 100000, 1).name("Global Seed");
 randomFolder.add(envParams.random, "strength", 0, 1).name("Rand Strength");
 
-// Vegetation Scale Folders
-const vegFolders = {
-  grass: gui.addFolder("🌿 Grass Scale"),
-  bush: gui.addFolder("🌳 Bush Scale"),
-  tree: gui.addFolder("🌲 Tree Scale"),
-  rock: gui.addFolder("🪨 Rock Scale")
-};
 
-Object.entries(vegFolders).forEach(([key, folder]) => {
-  folder.add(envParams[key], "scaleMin", 0.1, 10, 0.1).name("Scale Min").onChange(() => chunkManager.refreshChunks());
-  folder.add(envParams[key], "scaleMax", 0.1, 20, 0.1).name("Scale Max").onChange(() => chunkManager.refreshChunks());
-});
 
 gui.add({ regenerate: () => chunkManager.refreshChunks() }, "regenerate").name("🔄 Regenerate World");
 
@@ -482,6 +464,10 @@ spectatorFolder.add(envParams.spectator, "active").name("Active").listen().onCha
   }
 });
 spectatorFolder.add(envParams.spectator, "speed", 1, 100, 1).name("Speed");
+
+const interactionFolder = gui.addFolder("🏃 Player Interaction");
+interactionFolder.add(envParams.interaction, "radius", 0.5, 5, 0.1).name("Radius");
+interactionFolder.add(envParams.interaction, "strength", 0, 2, 0.1).name("Strength");
 
 // Toggle with E for Mode Switch
 window.addEventListener("keydown", (e) => {
@@ -704,13 +690,19 @@ function animate() {
 
   chunkManager.update(camera.position);
 
-  sky.position.copy(camera.position);
+//   sky.position.copy(camera.position);
 
   perf.begin();
 
   const now = performance.now();
   const dt = Math.min((now - lastTime) / 1000, 0.033);
   lastTime = now;
+
+  if (localChar && localChar.model) {
+    const playerPos = localChar.model.position;
+    chunkManager.envUniforms.uPlayerPos.value.copy(playerPos);
+    cloudSystem.update(now * 0.001, playerPos, envParams.sun.pos);
+  }
 
   world.step();
 

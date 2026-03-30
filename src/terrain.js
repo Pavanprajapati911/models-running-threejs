@@ -4,6 +4,7 @@ import Rapier from "@dimforge/rapier3d-compat";
 import vertexShader from "./shaders/terrain_vert.glsl?raw";
 import fragmentShader from "./shaders/terrain_frag.glsl?raw";
 import { VegetationManager } from "./environment/vegetation-manager.js";
+import { GrassManager, GRASS_VARIATIONS } from "./environment/GrassManager.js";
 import alea from "alea";
 import { createNoise2D } from "simplex-noise";
 
@@ -20,6 +21,7 @@ export class TerrainChunk {
 
     this.vegetation = [];
     this.placedObjects = [];
+    this.placedGrass = [];
 
     this.init();
   }
@@ -96,8 +98,9 @@ export class TerrainChunk {
     if (this.manager.placedObjectManager) {
       const cx = Math.floor(this.x / this.manager.chunkSize);
       const cz = Math.floor(this.z / this.manager.chunkSize);
-      const objects = this.manager.placedObjectManager.getObjectsForChunk(cx, cz);
-      objects.forEach(obj => this.spawnPlacedObject(obj));
+      
+      this.manager.placedObjectManager.getObjectsForChunk(cx, cz).forEach(obj => this.spawnPlacedObject(obj));
+      this.manager.placedObjectManager.getGrassForChunk(cx, cz).forEach(g => this.spawnGrassPatch(g));
     }
   }
 
@@ -142,6 +145,33 @@ export class TerrainChunk {
     }
   }
 
+  spawnGrassPatch(data) {
+    if (!this.manager.grassManager) return;
+    
+    // Get params from variation if not already set
+    const varParams = GRASS_VARIATIONS[data.variation] || GRASS_VARIATIONS['light_wind'];
+    const mergedParams = { ...varParams, ...data.params };
+
+    const mesh = this.manager.grassManager.createGrassPatch(mergedParams);
+    mesh.position.set(data.position[0], data.position[1], data.position[2]);
+    mesh.rotation.set(data.rotation[0], data.rotation[1], data.rotation[2]);
+    mesh.scale.set(data.scale[0], data.scale[1], data.scale[2]);
+
+    mesh.userData.isGrassPatch = true;
+    mesh.userData.placedObjectData = data;
+
+    this.manager.scene.add(mesh);
+    this.placedGrass.push({ data: data, mesh: mesh });
+  }
+
+  removeGrassPatch(data) {
+    const idx = this.placedGrass.findIndex(pg => pg.data === data);
+    if (idx !== -1) {
+        this.manager.scene.remove(this.placedGrass[idx].mesh);
+        this.placedGrass.splice(idx, 1);
+    }
+  }
+
   dispose() {
     if (this.mesh) {
       this.mesh.geometry.dispose();
@@ -156,8 +186,13 @@ export class TerrainChunk {
       this.manager.scene.remove(po.mesh);
     });
 
+    this.placedGrass.forEach(pg => {
+        this.manager.scene.remove(pg.mesh);
+    });
+
     this.vegetation = [];
     this.placedObjects = [];
+    this.placedGrass = [];
 
     if (this.collider) {
       this.manager.world.removeCollider(this.collider, true);
@@ -282,6 +317,9 @@ export class ChunkManager {
       uPathStrength: { value: this.envParams.terrain.pathStrength },
       uBiomeScale: { value: this.envParams.biome.scale },
       uGlobalSeed: { value: this.envParams.random.seed },
+      uPlayerPos: { value: new THREE.Vector3() },
+      uInteractionRadius: { value: 1.5 },
+      uInteractionStrength: { value: 0.8 }
     };
 
     // ✅ SHARED MATERIAL (BIG WIN)
@@ -301,6 +339,8 @@ export class ChunkManager {
     this.vegManager.loadModels().then(() => {
       this.update(new THREE.Vector3());
     });
+
+    this.grassManager = new GrassManager(this.scene);
   }
 
   getGeometry(segments) {
@@ -343,6 +383,13 @@ export class ChunkManager {
       .copy(this.envUniforms.uSunPos.value)
       .normalize();
 
+    if (this.grassManager) {
+        this.grassManager.sharedUniforms.uTime.value = this.envUniforms.uTime.value;
+        this.grassManager.sharedUniforms.uPlayerPos.value.copy(this.envUniforms.uPlayerPos.value);
+        this.grassManager.sharedUniforms.uInteractionRadius.value = this.envUniforms.uInteractionRadius.value;
+        this.grassManager.sharedUniforms.uInteractionStrength.value = this.envUniforms.uInteractionStrength.value;
+    }
+
     // Fast sync GUI params
     this.envUniforms.uTextureScale.value = this.envParams.terrain.texScale;
     this.envUniforms.uGrassStrength.value = this.envParams.terrain.grassTextureStrength;
@@ -353,6 +400,10 @@ export class ChunkManager {
     this.envUniforms.uForestThreshold.value = this.envParams.biome.forestThreshold;
     this.envUniforms.uBiomeScale.value = this.envParams.biome.scale;
     this.envUniforms.uGlobalSeed.value = this.envParams.random.seed;
+
+    // Interaction sync
+    this.envUniforms.uInteractionRadius.value = this.envParams.interaction.radius;
+    this.envUniforms.uInteractionStrength.value = this.envParams.interaction.strength;
 
     const projScreenMatrix = new THREE.Matrix4();
     projScreenMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);

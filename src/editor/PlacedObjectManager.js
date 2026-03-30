@@ -4,6 +4,7 @@ export class PlacedObjectManager {
     this.scene = scene;
     this.chunkManager = chunkManager;
     this.placedObjects = new Map(); // key: "x,z", value: array of objects
+    this.placedGrass = new Map();   // key: "x,z", value: array of grass objects
   }
 
   addObject(type, modelIndex, pos, rot, scale) {
@@ -27,7 +28,6 @@ export class PlacedObjectManager {
 
     this.placedObjects.get(key).push(obj);
 
-    // If chunk is currently loaded, spawn it immediately in the scene
     const chunk = this.chunkManager.chunks.get(key);
     if (chunk && chunk.spawnPlacedObject) {
       chunk.spawnPlacedObject(obj);
@@ -36,6 +36,36 @@ export class PlacedObjectManager {
     return obj;
   }
 
+  addGrass(variation, pos, rot, scale, params) {
+    const chunkSize = this.chunkManager.chunkSize;
+    const chunkX = Math.floor(pos.x / chunkSize);
+    const chunkZ = Math.floor(pos.z / chunkSize);
+    const key = `${chunkX},${chunkZ}`;
+
+    if (!this.placedGrass.has(key)) {
+      this.placedGrass.set(key, []);
+    }
+
+    // Default params from variation or direct
+    const grassObj = {
+      type: "grass_animated",
+      variation: variation,
+      chunk: [chunkX, chunkZ],
+      position: [pos.x, pos.y, pos.z],
+      rotation: [rot.x, rot.y, rot.z],
+      scale: [scale.x, scale.y, scale.z],
+      params: { ...params }
+    };
+
+    this.placedGrass.get(key).push(grassObj);
+
+    const chunk = this.chunkManager.chunks.get(key);
+    if (chunk && chunk.spawnGrassPatch) {
+      chunk.spawnGrassPatch(grassObj);
+    }
+
+    return grassObj;
+  }
 
   removeObject(pos, radius = 2) {
     const chunkSize = this.chunkManager.chunkSize;
@@ -43,35 +73,47 @@ export class PlacedObjectManager {
     const chunkZ = Math.floor(pos.z / chunkSize);
     const key = `${chunkX},${chunkZ}`;
 
-    if (!this.placedObjects.has(key)) return;
-
-    const objects = this.placedObjects.get(key);
     let removed = false;
-    for (let i = objects.length - 1; i >= 0; i--) {
-      const o = objects[i];
-      const dist = Math.sqrt(
-        Math.pow(o.position[0] - pos.x, 2) +
-        Math.pow(o.position[1] - pos.y, 2) +
-        Math.pow(o.position[2] - pos.z, 2)
-      );
 
-      if (dist < radius) {
-        objects.splice(i, 1);
-        removed = true;
-        
-        // Find in chunk and remove from scene
-        const chunk = this.chunkManager.chunks.get(key);
-        if (chunk && chunk.removePlacedObject) {
-          chunk.removePlacedObject(o);
+    // Remove from placedObjects
+    if (this.placedObjects.has(key)) {
+      const objects = this.placedObjects.get(key);
+      for (let i = objects.length - 1; i >= 0; i--) {
+        const o = objects[i];
+        const dist = Math.sqrt(Math.pow(o.position[0] - pos.x, 2) + Math.pow(o.position[1] - pos.y, 2) + Math.pow(o.position[2] - pos.z, 2));
+        if (dist < radius) {
+          objects.splice(i, 1);
+          removed = true;
+          const chunk = this.chunkManager.chunks.get(key);
+          if (chunk && chunk.removePlacedObject) chunk.removePlacedObject(o);
         }
       }
     }
+
+    // Remove from placedGrass
+    if (this.placedGrass.has(key)) {
+      const grass = this.placedGrass.get(key);
+      for (let i = grass.length - 1; i >= 0; i--) {
+        const g = grass[i];
+        const dist = Math.sqrt(Math.pow(g.position[0] - pos.x, 2) + Math.pow(g.position[1] - pos.y, 2) + Math.pow(g.position[2] - pos.z, 2));
+        if (dist < radius) {
+          grass.splice(i, 1);
+          removed = true;
+          const chunk = this.chunkManager.chunks.get(key);
+          if (chunk && chunk.removeGrassPatch) chunk.removeGrassPatch(g);
+        }
+      }
+    }
+
     return removed;
   }
 
   getObjectsForChunk(x, z) {
-    const key = `${x},${z}`;
-    return this.placedObjects.get(key) || [];
+    return this.placedObjects.get(`${x},${z}`) || [];
+  }
+
+  getGrassForChunk(x, z) {
+    return this.placedGrass.get(`${x},${z}`) || [];
   }
 
   getAllRenderedMeshes() {
@@ -81,56 +123,113 @@ export class PlacedObjectManager {
       if (chunk.placedObjects) {
         chunk.placedObjects.forEach(po => meshes.push(po.mesh));
       }
+      if (chunk.placedGrass) {
+        chunk.placedGrass.forEach(pg => meshes.push(pg.mesh));
+      }
     }
     return meshes;
   }
-
-  removeObjectExact(objData) {
-    const key = `${objData.chunk[0]},${objData.chunk[1]}`;
-    if (!this.placedObjects.has(key)) return false;
-
-    const objects = this.placedObjects.get(key);
-    const idx = objects.indexOf(objData);
-    if (idx !== -1) {
-      objects.splice(idx, 1);
-      const chunk = this.chunkManager.chunks.get(key);
-      if (chunk && chunk.removePlacedObject) {
-        chunk.removePlacedObject(objData);
-      }
-      return true;
-    }
-    return false;
-  }
-
   exportJSON() {
     const allObjects = [];
     for (const objs of this.placedObjects.values()) {
       allObjects.push(...objs);
     }
-    const data = { objects: allObjects };
+
+    const allGrass = [];
+    for (const grassTable of this.placedGrass.values()) {
+      allGrass.push(...grassTable);
+    }
+
+    const data = {
+      objects: allObjects,
+      grass: allGrass
+    };
+
+    console.log(`🌿 Exporting ${allObjects.length} objects`);
+    console.log(`🌾 Exporting ${allGrass.length} grass patches`);
+
+    this._download(data, "map_full.json");
+
+    console.log("💾 Map & Grass Exported (single file)");
+  }
+
+  _download(data, filename) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
+    a.style.display = "none";
+    document.body.appendChild(a);
     a.href = url;
-    a.download = "jungle.json";
+    a.download = filename;
     a.click();
-    console.log("💾 Map Exported");
+
+    // Slight cleanup delay
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
   }
 
   async loadJSON(url) {
     try {
       const response = await fetch(url);
       const data = await response.json();
+
       this.placedObjects.clear();
-      data.objects.forEach(o => {
-        const key = `${o.chunk[0]},${o.chunk[1]}`;
-        if (!this.placedObjects.has(key)) this.placedObjects.set(key, []);
-        this.placedObjects.get(key).push(o);
-      });
-      console.log(`📥 Loaded ${data.objects.length} objects from ${url}`);
+      this.placedGrass.clear();
+
+      // Load static objects
+      if (data.objects) {
+        data.objects.forEach(o => {
+          const key = `${o.chunk[0]},${o.chunk[1]}`;
+          if (!this.placedObjects.has(key)) this.placedObjects.set(key, []);
+          this.placedObjects.get(key).push(o);
+        });
+      }
+
+      // Load grass patches
+      if (data.grass) {
+        data.grass.forEach(g => {
+          const key = `${g.chunk[0]},${g.chunk[1]}`;
+          if (!this.placedGrass.has(key)) this.placedGrass.set(key, []);
+          this.placedGrass.get(key).push(g);
+        });
+      }
+
+      console.log(`📥 Loaded: ${data.objects?.length || 0} objects, ${data.grass?.length || 0} grass patches`);
       this.chunkManager.refreshChunks();
     } catch (e) {
-      console.error("Failed to load map:", e);
+      console.warn("Failed to load combined map file:", e.message);
     }
+  }
+
+  removeObjectExact(objData) {
+    const key = `${objData.chunk[0]},${objData.chunk[1]}`;
+
+    // check objects
+    if (this.placedObjects.has(key)) {
+      const list = this.placedObjects.get(key);
+      const idx = list.indexOf(objData);
+      if (idx !== -1) {
+        list.splice(idx, 1);
+        const chunk = this.chunkManager.chunks.get(key);
+        if (chunk) chunk.removePlacedObject(objData);
+        return true;
+      }
+    }
+
+    // check grass
+    if (this.placedGrass.has(key)) {
+      const list = this.placedGrass.get(key);
+      const idx = list.indexOf(objData);
+      if (idx !== -1) {
+        list.splice(idx, 1);
+        const chunk = this.chunkManager.chunks.get(key);
+        if (chunk) chunk.removeGrassPatch(objData);
+        return true;
+      }
+    }
+
+    return false;
   }
 }

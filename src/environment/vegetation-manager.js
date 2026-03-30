@@ -82,6 +82,20 @@ export class VegetationManager {
     }
 
     await Promise.all(loadPromises);
+    
+    // Add Grass Variations for Editor
+    const { GRASS_VARIATIONS } = await import('./GrassManager.js');
+    const staticGrass = [];
+    const animatedGrass = [];
+    
+    Object.entries(GRASS_VARIATIONS).forEach(([name, params]) => {
+        const item = { name, isGrassVariation: true, params };
+        if (params.animated) animatedGrass.push(item);
+        else staticGrass.push(item);
+    });
+    
+    this.models.set("grass_static", staticGrass);
+    this.models.set("grass_animated", animatedGrass);
 
     // Clean invalid entries
     for (const [category, arr] of this.models.entries()) {
