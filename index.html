@@ -1,11 +1,9 @@
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shadows</title>
+    <title>Terrain Editor</title>
     <link rel="stylesheet" href="./style.css">
 </head>
 <body>
@@ -20,18 +18,82 @@
     <!-- Editor sidebar (hidden by default) -->
     <div id="editor-ui" style="display:none;">
         <h3>🛠️ MAP EDITOR</h3>
-        <p>Left Click → Place &nbsp;|&nbsp; Shift+Click → Delete<br>Right Drag → Orbit &nbsp;|&nbsp; Scroll → Rotate Object &nbsp;|&nbsp; WASD → Fly</p>
 
-        <div id="model-list"></div>
-        <div class="editor-btn-row">
-            <button id="export-json">💾 Export Map</button>
-            <button id="load-json">📥 Load Map</button>
+        <!-- Sub-mode badge -->
+        <div id="terrain-mode-indicator" class="sub-mode-badge">🪵 OBJECT MODE</div>
+        <p class="mode-hint">Press <kbd>1</kbd> Terrain &nbsp;|&nbsp; <kbd>2</kbd> Object</p>
+
+        <!-- ══ OBJECT MODE PANEL ════════════════════════════════════════════ -->
+        <div id="object-mode-panel">
+        <p>
+                Left Click → Place &nbsp;|&nbsp; Shift+Click → Delete<br>
+                Right Drag → Orbit &nbsp;|&nbsp; Scroll → Rotate &nbsp;|&nbsp; WASD → Fly<br>
+                <kbd>T</kbd>/<kbd>G</kbd> Scale &nbsp;|&nbsp; <kbd>R</kbd> Rotate sel. &nbsp;|&nbsp; Ctrl+C/V Copy/Paste<br>
+                <kbd>Ctrl+Z</kbd> Undo &nbsp;<span id="undo-count" style="opacity:0.45;">↩️ 0</span>
+            </p>
+            <div id="model-list"></div>
+            <div class="editor-btn-row">
+                <button id="export-json">💾 Export Map</button>
+                <button id="load-json">📥 Load Map</button>
+            </div>
         </div>
-        <div id="editor-hint">Press E to return to Game Mode</div>
+
+        <!-- ══ TERRAIN MODE PANEL ═══════════════════════════════════════════ -->
+        <div id="terrain-mode-panel" style="display:none;">
+
+            <!-- Status line -->
+            <div id="terrain-status" class="terrain-status">Click spline / C to draw / 1-2 switch mode</div>
+
+            <!-- Spline type buttons -->
+            <div class="terrain-section-label">SPLINE TYPE</div>
+            <div class="terrain-type-row">
+                <button id="btn-ridge"   class="type-btn active" title="R key">⛰️ Ridge</button>
+                <button id="btn-valley"  class="type-btn"        title="V key">🏞️ Valley</button>
+                <button id="btn-plateau" class="type-btn"        title="F key">🗻 Plateau</button>
+                <button id="btn-road"    class="type-btn"        title="O key">🛤️ Road</button>
+            </div>
+
+            <!-- Width / Strength display -->
+            <div class="terrain-params">
+                <div class="param-row">
+                    <span class="param-label">Width</span>
+                    <span class="param-ctrl"><kbd>[</kbd> <span id="terrain-width-val">10.0</span> <kbd>]</kbd></span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">Strength</span>
+                    <span class="param-ctrl"><kbd>-</kbd> <span id="terrain-strength-val">5.0</span> <kbd>+</kbd></span>
+                </div>
+            </div>
+
+            <!-- Keyboard guide -->
+            <div class="terrain-keys">
+                <div class="key-row"><kbd>C</kbd> Start drawing spline</div>
+                <div class="key-row"><kbd>Enter</kbd> Finalise spline</div>
+                <div class="key-row"><kbd>Esc</kbd> Cancel / deselect</div>
+                <div class="key-row"><kbd>Del</kbd> Delete selected spline</div>
+                <div class="key-row"><kbd>R</kbd> Ridge &nbsp;<kbd>V</kbd> Valley &nbsp;<kbd>F</kbd> Plateau &nbsp;<kbd>O</kbd> Road</div>
+                <div class="key-row"><kbd>[</kbd><kbd>]</kbd> Width &nbsp; <kbd>-</kbd><kbd>+</kbd> Strength</div>
+                <div class="key-row">Drag control spheres to move points</div>
+                <div class="key-row"><kbd>Ctrl+Z</kbd> Undo last action</div>
+            </div>
+
+            <!-- Export terrain-only -->
+            <div class="editor-btn-row" style="margin-top:8px;">
+                <button id="export-terrain">⛰️ Export Terrain</button>
+                <button id="export-json"   style="display:none;">💾 Export Map</button>
+                <button id="load-json"     style="display:none;">📥 Load Map</button>
+            </div>
+            <div class="editor-btn-row">
+                <button id="export-full" onclick="document.getElementById('export-json').click()">💾 Export Full Map</button>
+                <button id="load-full"   onclick="document.getElementById('load-json').click()">📥 Load Full Map</button>
+            </div>
+
+        </div>
+
+        <div id="editor-hint">Press P to toggle Editor / Game Mode</div>
     </div>
 
     <canvas class="webgl"></canvas>
     <script type="module" src="./src/main.js"></script>
 </body>
-
 </html>

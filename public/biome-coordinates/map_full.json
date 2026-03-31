@@ -1,120 +1,6 @@
 {
   "objects": [
-    {
-      "type": "palms",
-      "modelIndex": 1,
-      "chunk": [
-        0,
-        0
-      ],
-      "position": [
-        19.108432494533787,
-        2.7888861858918452,
-        17.52082800146095
-      ],
-      "rotation": [
-        0,
-        0.15,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ]
-    },
-    {
-      "type": "palms",
-      "modelIndex": 1,
-      "chunk": [
-        0,
-        0
-      ],
-      "position": [
-        0.2465288451257024,
-        3.5880395916143875,
-        17.4731523803396
-      ],
-      "rotation": [
-        0,
-        1.05,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ]
-    },
-    {
-      "type": "grass",
-      "modelIndex": 0,
-      "chunk": [
-        0,
-        0
-      ],
-      "position": [
-        47.54483043919795,
-        2.3369724217479506,
-        48.22491018739336
-      ],
-      "rotation": [
-        0,
-        0.44999999999999996,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ]
-    },
-    {
-      "type": "grass",
-      "modelIndex": 0,
-      "chunk": [
-        2,
-        1
-      ],
-      "position": [
-        116.01929504530196,
-        3.840405745974034,
-        68.57897120530352
-      ],
-      "rotation": [
-        0,
-        0,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ]
-    },
-    {
-      "type": "grass",
-      "modelIndex": 0,
-      "chunk": [
-        1,
-        1
-      ],
-      "position": [
-        96.95249171349737,
-        2.9297276594770794,
-        63.92736229317965
-      ],
-      "rotation": [
-        0,
-        0.75,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ]
-    }
+ 
   ],
   "grass": [
     {
@@ -150,176 +36,33 @@
         "baseColor": "#021c02",
         "tipColor": "#217010"
       }
-    },
+    }
+  ],
+  "splines": [
     {
-      "type": "grass_animated",
-      "variation": "heavy_wind",
-      "chunk": [
-        0,
-        0
+      "type": "ridge",
+      "points": [
+        [
+          336.91512109532306,
+          34.3940466214453
+        ],
+        [
+          337.31836166903133,
+          35.63320167254855
+        ],
+        [
+          336.2582319565746,
+          33.89477674831795
+        ],
+        [
+          336.52452658344254,
+          34.11349832466537
+        ]
       ],
-      "position": [
-        37.60993161939316,
-        2.429965830761866,
-        49.98968379324357
-      ],
-      "rotation": [
-        0,
-        0.75,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "params": {
-        "animated": true,
-        "height": 1.1,
-        "width": 0.07,
-        "density": 180,
-        "radius": 3,
-        "windStrength": 0.4,
-        "windSpeed": 4.5,
-        "baseColor": "#082808",
-        "tipColor": "#5d960a"
-      }
-    },
-    {
-      "type": "grass_animated",
-      "variation": "heavy_wind",
-      "chunk": [
-        0,
-        0
-      ],
-      "position": [
-        33.25170861793656,
-        2.8022187510878864,
-        49.34357037798957
-      ],
-      "rotation": [
-        0,
-        0.75,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "params": {
-        "animated": true,
-        "height": 1.1,
-        "width": 0.07,
-        "density": 7200,
-        "radius": 10,
-        "windStrength": 0.4,
-        "windSpeed": 4.5,
-        "baseColor": "#082808",
-        "tipColor": "#5d960a"
-      }
-    },
-    {
-      "type": "grass_animated",
-      "variation": "heavy_wind",
-      "chunk": [
-        0,
-        0
-      ],
-      "position": [
-        40.513706381581784,
-        3.1834142637152114,
-        40.5787534774405
-      ],
-      "rotation": [
-        0,
-        0.75,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "params": {
-        "animated": true,
-        "height": 1.1,
-        "width": 0.07,
-        "density": 5000,
-        "radius": 7,
-        "windStrength": 0.4,
-        "windSpeed": 4.5,
-        "baseColor": "#082808",
-        "tipColor": "#5d960a"
-      }
-    },
-    {
-      "type": "grass_animated",
-      "variation": "heavy_wind",
-      "chunk": [
-        0,
-        0
-      ],
-      "position": [
-        31.94057072638031,
-        3.7690097406135488,
-        36.181679777832755
-      ],
-      "rotation": [
-        0,
-        0.75,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "params": {
-        "animated": true,
-        "height": 1.1,
-        "width": 0.07,
-        "density": 4500,
-        "radius": 6,
-        "windStrength": 0.4,
-        "windSpeed": 4.5,
-        "baseColor": "#082808",
-        "tipColor": "#5d960a"
-      }
-    },
-    {
-      "type": "grass_animated",
-      "variation": "heavy_wind",
-      "chunk": [
-        0,
-        0
-      ],
-      "position": [
-        38.54391454310881,
-        3.8835391071114094,
-        31.07467025874582
-      ],
-      "rotation": [
-        0,
-        0.75,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "params": {
-        "animated": true,
-        "height": 1.1,
-        "width": 0.07,
-        "density": 4300,
-        "radius": 8,
-        "windStrength": 0.4,
-        "windSpeed": 4.5,
-        "baseColor": "#082808",
-        "tipColor": "#5d960a"
-      }
+      "width": 10,
+      "strength": 5,
+      "falloff": 2,
+      "id": "8b8a5f98-720d-4541-923a-1ab3de1eba22"
     }
   ]
 }

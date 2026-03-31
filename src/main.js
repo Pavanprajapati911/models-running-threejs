@@ -11,6 +11,7 @@ import GUI from "lil-gui";
 import { ChunkManager } from "./terrain.js";
 import { createNoise2D } from "simplex-noise";
 import { PlacedObjectManager } from "./editor/PlacedObjectManager.js";
+import { TerrainSplineManager } from "./editor/TerrainSplineManager.js";
 import { EditorController } from "./editor/EditorController.js";
 import { ModeController } from "./core/ModeController.js";
 import { SkySystem } from "./environment/SkySystem.js";
@@ -21,7 +22,6 @@ import { WeatherController } from "./environment/WeatherController.js";
 const gui = new GUI();
 const envParams = {
   terrain: {
-    texScale: 10.0,
     intensity: 1.0,
     specular: 0.5,
     chunkSize: 50.0,
@@ -29,9 +29,8 @@ const envParams = {
     lodDistNear: 20.0,
     lodDistMid: 120.0,
     heightMult: 8.0,
-    grassTextureStrength: 1.0,
-    dirtTextureStrength: 1.0,
-    pathStrength: 1.0,
+    colorVariation: 1.0, // Used for Grass variation
+    dirtIntensity: 1.0,  // Used for Dirt patches
   },
   lowland: {
     baseFreq: 0.003,
@@ -125,10 +124,6 @@ const envUniforms = {
   uFogNear: { value: 1.0 },
   uFogFar: { value: 500.0 },
   uFogColor: { value: new THREE.Color(0xaaccff) },
-  uShowBiomeDebug: { value: envParams.debug.showBiome },
-  uDryThreshold: { value: envParams.biome.dryThreshold },
-  uGrassThreshold: { value: envParams.biome.grassThreshold },
-  uForestThreshold: { value: envParams.biome.forestThreshold },
 };
 
 gui.domElement.querySelectorAll(".lil-gui .title").forEach(el => {
@@ -248,13 +243,25 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 // ========================= */
 
 const placedObjectManager = new PlacedObjectManager(scene, { chunkSize: envParams.terrain.chunkSize, chunks: new Map() }); // Temp placeholder
-const chunkManager = new ChunkManager(scene, world, camera, createNoise2D(), envUniforms, envParams, placedObjectManager);
+const terrainSplineManager = new TerrainSplineManager(scene);
+
+const chunkManager = new ChunkManager(
+  scene, world, camera,
+  createNoise2D(),
+  envUniforms, envParams,
+  placedObjectManager,
+  terrainSplineManager
+);
 placedObjectManager.chunkManager = chunkManager; // Fix circular ref
+placedObjectManager.terrainSplineManager = terrainSplineManager;
 const terrain = chunkManager; // alias for compatibility if needed
 
 const raycaster = new THREE.Raycaster();
-const editorController = new EditorController(scene, camera, raycaster, chunkManager, placedObjectManager);
-const modeController = new ModeController({ envParams, character: null, editorController }); // character set later
+const editorController = new EditorController(
+  scene, camera, raycaster,
+  chunkManager, placedObjectManager, terrainSplineManager
+);
+const modeController = new ModeController({ envParams, character: null, editorController });
 
 // No sky or weather systems initialized
 const weather = new WeatherController(scene, gui);
@@ -264,40 +271,10 @@ weather.setSystems(sky, clouds);
 
 
 
-const advBiomeFolder = gui.addFolder("🌍 Advanced Biomes");
-advBiomeFolder.add(envParams.biome, "dryThreshold", 0, 1).name("Dry Threshold").onChange(() => chunkManager.refreshChunks());
-advBiomeFolder.add(envParams.biome, "grassThreshold", 0, 1).name("Grass Threshold").onChange(() => chunkManager.refreshChunks());
-advBiomeFolder.add(envParams.biome, "forestThreshold", 0, 1).name("Forest Threshold").onChange(() => chunkManager.refreshChunks());
-advBiomeFolder.add(envParams.biome, "influence", 0, 2).name("Biome Influence").onChange(() => chunkManager.refreshChunks());
-advBiomeFolder.add(envParams.biome, "blend", 0, 1).name("Biome Blend");
-
-// Biome-specific subfolders
-const biomes = ["jungle", "forest", "grassland", "dry"];
-biomes.forEach(b => {
-  const f = advBiomeFolder.addFolder(b.charAt(0).toUpperCase() + b.slice(1));
-  f.add(envParams.biomes[b], "treeDensity", 0, 200).name("Tree Density").onChange(() => chunkManager.refreshChunks());
-  f.add(envParams.biomes[b], "grassDensity", 0, 3000).name("Grass Density").onChange(() => chunkManager.refreshChunks());
-  f.add(envParams.biomes[b], "bushDensity", 0, 500).name("Bush Density").onChange(() => chunkManager.refreshChunks());
-  f.add(envParams.biomes[b], "rockDensity", 0, 100).name("Rock Density").onChange(() => chunkManager.refreshChunks());
-  f.add(envParams.biomes[b], "clusterStrength", 0, 1).name("Cluster Strength").onChange(() => chunkManager.refreshChunks());
-});
-
-const pathFolder = gui.addFolder("🛤️ Path Settings");
-pathFolder.add(envParams.path, "strength", 0, 2).name("Path Strength").onChange(() => chunkManager.refreshChunks());
-pathFolder.add(envParams.path, "width", 0, 0.5).name("Path Width").onChange(() => chunkManager.refreshChunks());
-pathFolder.add(envParams.path, "influence", 0, 2).name("Path Influence").onChange(() => chunkManager.refreshChunks());
-
-const debugFolder = gui.addFolder("🛠️ Debug");
-debugFolder.add(envParams.debug, "showBiome").name("Show Biomes").onChange((v) => {
-  envUniforms.uShowBiomeDebug.value = v;
-});
-
-const terrainTexFolder = gui.addFolder("🎨 Terrain Textures");
-terrainTexFolder.add(envParams.terrain, "texScale", 1, 50, 0.1).name("Texture Scale");
-terrainTexFolder.add(envParams.terrain, "grassTextureStrength", 0, 2).name("Grass Strength");
-terrainTexFolder.add(envParams.terrain, "dirtTextureStrength", 0, 2).name("Dirt Strength");
-terrainTexFolder.add(envParams.terrain, "pathStrength", 0, 2).name("Path Strength");
-terrainTexFolder.add(envParams.terrain, "intensity", 0, 5, 0.1).name("Light Intensity");
+const terrainProceduralFolder = gui.addFolder("🌿 Procedural Ground");
+terrainProceduralFolder.add(envParams.terrain, "colorVariation", 0, 2).name("Color Variation");
+terrainProceduralFolder.add(envParams.terrain, "dirtIntensity", 0, 2).name("Dirt Intensity");
+terrainProceduralFolder.add(envParams.terrain, "intensity", 0, 5, 0.1).name("Light Intensity");
 
 const perfFolder = gui.addFolder("🎮 Performance");
 perfFolder.add(envParams.performance, "enableLOD").name("Enable LOD");
@@ -342,19 +319,9 @@ window.addEventListener("keydown", (e) => {
    CHARACTER
 ========================= */
 
-let modelChoice = null;
+const modelPath = "/models/soldier.glb";
 
-while (!modelChoice) {
-  const choice = prompt("Choose your character: 'soldier' or 'enemy'");
-  if (choice === "soldier" || choice === "enemy") modelChoice = choice;
-}
-
-const modelPath =
-  modelChoice === "soldier"
-    ? "/models/soldier.glb"
-    : "/models/soldier.glb";
-
-const startPos = new THREE.Vector3(19, 4, 21.3);
+const startPos = new THREE.Vector3(339, 4, 21.3);
 
 const gameCharacters = [];
 
@@ -478,7 +445,7 @@ vegManager.onLoad(() => {
 
 
 document.getElementById("export-json").onclick = () => placedObjectManager.exportJSON();
-document.getElementById("load-json").onclick = () => placedObjectManager.loadJSON(envParams.mode.biomeFile);
+document.getElementById("load-json").onclick   = () => placedObjectManager.loadJSON(envParams.mode.biomeFile);
 
 if (envParams.mode.type === "runtime") {
   placedObjectManager.loadJSON(envParams.mode.biomeFile);
@@ -569,7 +536,15 @@ function animate() {
     chunkManager.envUniforms.uPlayerPos.value.copy(playerPos);
   }
 
-  world.step();
+  let accumulator = 0;
+  const fixedStep = 1 / 60;
+
+  accumulator += dt;
+
+  while (accumulator >= fixedStep) {
+    world.step();
+    accumulator -= fixedStep;
+  }
 
   if (!envParams.spectator.active && envParams.mode.type !== "editor") {
     gameCharacters.forEach(char => char.update(dt));

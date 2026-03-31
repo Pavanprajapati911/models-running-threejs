@@ -35,18 +35,18 @@ export class FogSystem {
       new THREE.Float32BufferAttribute(positions, 3)
     );
 
-    const texture = new THREE.TextureLoader().load("/textures/smoke.png");
+    // const texture = new THREE.TextureLoader().load("/textures/smoke.png");
 
-    const material = new THREE.PointsMaterial({
-      map: texture,
-      transparent: true,
-      opacity: 0.4,
-      depthWrite: false,
-      size: 1.2,
-    });
+    // const material = new THREE.PointsMaterial({
+    //   map: texture,
+    //   transparent: true,
+    //   opacity: 0.4,
+    //   depthWrite: false,
+    //   size: 1.2,
+    // });
 
-    this.playerFog = new THREE.Points(geometry, material);
-    this.scene.add(this.playerFog);
+    // this.playerFog = new THREE.Points(geometry, material);
+    // this.scene.add(this.playerFog);
   }
 
   update(dt) {

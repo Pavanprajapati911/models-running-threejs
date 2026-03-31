@@ -110,14 +110,6 @@ export class Character {
         }
       });
     });
-
-    // ---- DEBUG VISUALIZATION ----
-    this.debugSphere = new THREE.Mesh(
-      new THREE.SphereGeometry(0.2),
-      new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false })
-    );
-    this.debugSphere.renderOrder = 999;
-    this.scene.add(this.debugSphere);
   }
 
   // =====================
@@ -134,11 +126,6 @@ export class Character {
 
     // EXACT Sync of visual model to body (excluding height offset)
     this.model.position.set(pos.x, pos.y - this.heightOffset, pos.z);
-
-    // Sync debug visualization to PHYSICS BODY
-    if (this.debugSphere) {
-      this.debugSphere.position.set(pos.x, pos.y, pos.z);
-    }
 
     this.anim.update(dt);
   }
@@ -384,10 +371,6 @@ export class Character {
     this.attackTimer = 0;
     this.hitRegistered = false;
     this.playAnim(name, false);
-    
-    // Log synchronization state at moment of attack start
-    const pos = this.body.translation();
-    console.log(`[ATTACK START] PhysBody: [${pos.x.toFixed(2)}, ${pos.z.toFixed(2)}] | VisualModel: [${this.model.position.x.toFixed(2)}, ${this.model.position.z.toFixed(2)}]`);
   }
 
   checkHit() {
@@ -399,9 +382,6 @@ export class Character {
     // SINGLE SOURCE OF TRUTH: Physics Body (current world position)
     const a = this.body.translation();
     
-    // Log internal vs visual positions to expose desync
-    console.log(`[HIT CHECK] Attacker Body: [${a.x.toFixed(2)}, ${a.z.toFixed(2)}] | Model: [${this.model.position.x.toFixed(2)}, ${this.model.position.z.toFixed(2)}]`);
-
     // Get forward orientation from model rotation (Single axis for horizontal dot product)
     const forward = new THREE.Vector3(
       Math.sin(this.model.rotation.y),
@@ -423,8 +403,6 @@ export class Character {
       // Attack Cone (Dot Product) - must be facing the target
       const toTarget = new THREE.Vector3(dx, 0, dz).normalize();
       const dot = forward.dot(toTarget);
-
-      console.log(`- TARGET Body: [${b.x.toFixed(2)}, ${b.z.toFixed(2)}] | Model: [${target.model.position.x.toFixed(2)}, ${target.model.position.z.toFixed(2)}] | Dist: ${distance.toFixed(2)} | Dot: ${dot.toFixed(2)}`);
 
       if (distance < attackRange && dot > 0.3) {
         console.log("!!! HIT REGISTERED !!! Target: ", target.health);

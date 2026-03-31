@@ -1,5 +1,9 @@
 // src/editor/PlacedObjectManager.js
 export class PlacedObjectManager {
+  /**
+   * @param {THREE.Scene} scene
+   * @param {object} chunkManager
+   */
   constructor(scene, chunkManager) {
     this.scene = scene;
     this.chunkManager = chunkManager;
@@ -142,11 +146,13 @@ export class PlacedObjectManager {
 
     const data = {
       objects: allObjects,
-      grass: allGrass
+      grass: allGrass,
+      splines: this.terrainSplineManager ? this.terrainSplineManager.exportJSON() : []
     };
 
     console.log(`🌿 Exporting ${allObjects.length} objects`);
     console.log(`🌾 Exporting ${allGrass.length} grass patches`);
+    console.log(`🛣️ Exporting ${data.splines.length} terrain splines`);
 
     this._download(data, "map_full.json");
 
@@ -196,7 +202,14 @@ export class PlacedObjectManager {
         });
       }
 
-      console.log(`📥 Loaded: ${data.objects?.length || 0} objects, ${data.grass?.length || 0} grass patches`);
+      // Load splines
+      if (data.splines && this.terrainSplineManager) {
+        this.terrainSplineManager.loadJSON(data.splines);
+      }
+
+      console.log(`📥 Loaded: ${data.objects?.length || 0} objects, ${data.grass?.length || 0} grass patches, ${data.splines?.length || 0} splines`);
+
+      // Refresh chunks
       this.chunkManager.refreshChunks();
     } catch (e) {
       console.warn("Failed to load combined map file:", e.message);
