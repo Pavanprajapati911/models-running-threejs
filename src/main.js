@@ -1,22 +1,186 @@
 import * as THREE from "three";
 import { Character } from "./entities/character.js";
-import { InfiniteTerrain } from "./terrain.js";
-import { Network } from "./network.js";
+
 import Rapier from "@dimforge/rapier3d-compat";
 import { Interior } from "./entities/interior.js";
 import { InvisibleMesh } from "./entities/invisible_mesh.js";
 import { ThreePerf } from "three-perf";
+import { FogSystem } from "./environment/fog-system.js";
+import { StealthMap } from "./environment/stealth-map.js";
+import GUI from "lil-gui";
+import { ChunkManager } from "./terrain.js";
+import { createNoise2D } from "simplex-noise";
+import { PlacedObjectManager } from "./editor/PlacedObjectManager.js";
+import { EditorController } from "./editor/EditorController.js";
+import { ModeController } from "./core/ModeController.js";
+import { SkySystem } from "./environment/SkySystem.js";
+import { CloudSystem } from "./environment/CloudSystem.js";
+import { WeatherController } from "./environment/WeatherController.js";
 
+
+const gui = new GUI();
+const envParams = {
+  terrain: {
+    texScale: 10.0,
+    intensity: 1.0,
+    specular: 0.5,
+    chunkSize: 50.0,
+    renderDist: 3, // 3x3 or 5x5 chunks
+    lodDistNear: 20.0,
+    lodDistMid: 120.0,
+    heightMult: 8.0,
+    grassTextureStrength: 1.0,
+    dirtTextureStrength: 1.0,
+    pathStrength: 1.0,
+  },
+  lowland: {
+    baseFreq: 0.003,
+    hillFreq: 0.015,
+    detailFreq: 0.04,
+    baseAmp: 1.0,
+    hillAmp: 0.3,
+    detailAmp: 0.05
+  },
+  biome: {
+    density: 0.7,
+    scale: 0.01,
+    contrast: 1.0,
+    dryThreshold: 0.3,
+    grassThreshold: 0.55,
+    forestThreshold: 0.75,
+    influence: 1.0,
+    blend: 0.5,
+  },
+  biomes: {
+    jungle: {
+      treeDensity: 80,
+      grassDensity: 1500,
+      bushDensity: 120,
+      rockDensity: 5,
+      clusterStrength: 1.0
+    },
+    forest: {
+      treeDensity: 50,
+      grassDensity: 900,
+      bushDensity: 80,
+      rockDensity: 8,
+      clusterStrength: 0.7
+    },
+    grassland: {
+      treeDensity: 20,
+      grassDensity: 600,
+      bushDensity: 40,
+      rockDensity: 10,
+      clusterStrength: 0.4
+    },
+    dry: {
+      treeDensity: 5,
+      grassDensity: 100,
+      bushDensity: 5,
+      rockDensity: 20,
+      clusterStrength: 0.2
+    }
+  },
+  path: {
+    strength: 1.0,
+    width: 0.1,
+    influence: 1.0
+  },
+  debug: {
+    showBiome: false
+  },
+
+  performance: {
+    enableLOD: true,
+    lodFar: 50,
+    maxInstances: 50000,
+  },
+  random: {
+    seed: 12345,
+    strength: 1.0,
+  },
+  spectator: {
+    active: false,
+    speed: 20,
+  },
+  mode: {
+    type: "runtime", // "editor" | "runtime" | "procedural"
+    biomeFile: "/biome-coordinates/map_full.json"
+  },
+  interaction: {
+    radius: 1.5,
+    strength: 0.8
+  }
+};
+
+
+// ✅ REUSABLE VECTORS (NO GC)
+const tempVec1 = new THREE.Vector3();
+const tempVec2 = new THREE.Vector3();
+const tempVec3 = new THREE.Vector3();
+
+const envUniforms = {
+  uTime: { value: 0 },
+  uSunPos: { value: new THREE.Vector3(50, 100, 50) },
+  uFogNear: { value: 1.0 },
+  uFogFar: { value: 500.0 },
+  uFogColor: { value: new THREE.Color(0xaaccff) },
+  uShowBiomeDebug: { value: envParams.debug.showBiome },
+  uDryThreshold: { value: envParams.biome.dryThreshold },
+  uGrassThreshold: { value: envParams.biome.grassThreshold },
+  uForestThreshold: { value: envParams.biome.forestThreshold },
+};
+
+gui.domElement.querySelectorAll(".lil-gui .title").forEach(el => {
+  el.style.background = "#2a2a2a";
+});
+
+gui.domElement.querySelectorAll(".lil-gui .children").forEach(el => {
+  el.style.background = "#1e1e1e";
+});
 await Rapier.init({});
+let lastTime = performance.now();
+let yaw = 0;
+let pitch = 0;
+/* =========================
+   LOADING MANAGER
+========================= */
+const clock = new THREE.Clock();
 
+const loaderDiv = document.getElementById("loader");
+const progressText = document.getElementById("progress");
+
+const loadingManager = new THREE.LoadingManager();
+
+loadingManager.onProgress = (url, loaded, total) => {
+  const percent = Math.floor((loaded / total) * 100);
+  progressText.innerText = `Loading ${percent}%`;
+};
+
+loadingManager.onLoad = () => {
+  loaderDiv.style.display = "none";
+  startGame();
+};
+
+/* =========================
+   PHYSICS
+========================= */
 
 const gravity = { x: 0, y: -20, z: 0 };
 const world = new Rapier.World(gravity);
-
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
 
-let debugLines;
+// Basic lighting
+const sun = new THREE.DirectionalLight(0xffffff, 2);
+sun.position.set(50, 100, 50);
+scene.add(sun);
+scene.add(sun.target);
+scene.background = new THREE.Color(0xaaccff);
+
+
+/* =========================
+   DEBUG PHYSICS
+========================= */
 
 const debugMaterial = new THREE.LineBasicMaterial({
   vertexColors: true,
@@ -24,51 +188,175 @@ const debugMaterial = new THREE.LineBasicMaterial({
 
 const debugGeometry = new THREE.BufferGeometry();
 
-debugLines = new THREE.LineSegments(debugGeometry, debugMaterial);
+const debugLines = new THREE.LineSegments(debugGeometry, debugMaterial);
 scene.add(debugLines);
+
+/* =========================
+   CAMERA
+========================= */
 
 const camera = new THREE.PerspectiveCamera(
   60,
   window.innerWidth / window.innerHeight,
   0.1,
-  500,
+  15000
 );
+
+/* =========================
+   RENDERER
+========================= */
 
 const canvas = document.querySelector(".webgl");
 
 const renderer = new THREE.WebGLRenderer({
-  canvas: canvas,
-  antialias: true
+  canvas,
+  antialias: true,
+  powerPreference: "high-performance",
 });
+
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
+
+// ✅ CAP pixel ratio (HUGE)
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+
+// renderer.shadowMap.enabled = true;
+// renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+/* =========================
+   PERFORMANCE MONITOR
+========================= */
 
 const perf = new ThreePerf({
   renderer,
-  domElement: document.body
+  domElement: document.body,
+});
+
+/* =========================
+   LIGHTS
+========================= */
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+
+
+
+/* =========================
+   GUI CONTROLS
+ ========================= */
+
+/* =========================
+//    WORLD
+// ========================= */
+
+const placedObjectManager = new PlacedObjectManager(scene, { chunkSize: envParams.terrain.chunkSize, chunks: new Map() }); // Temp placeholder
+const chunkManager = new ChunkManager(scene, world, camera, createNoise2D(), envUniforms, envParams, placedObjectManager);
+placedObjectManager.chunkManager = chunkManager; // Fix circular ref
+const terrain = chunkManager; // alias for compatibility if needed
+
+const raycaster = new THREE.Raycaster();
+const editorController = new EditorController(scene, camera, raycaster, chunkManager, placedObjectManager);
+const modeController = new ModeController({ envParams, character: null, editorController }); // character set later
+
+// No sky or weather systems initialized
+const weather = new WeatherController(scene, gui);
+const sky = new SkySystem(scene);
+const clouds = new CloudSystem(scene);
+weather.setSystems(sky, clouds);
+
+
+
+const advBiomeFolder = gui.addFolder("🌍 Advanced Biomes");
+advBiomeFolder.add(envParams.biome, "dryThreshold", 0, 1).name("Dry Threshold").onChange(() => chunkManager.refreshChunks());
+advBiomeFolder.add(envParams.biome, "grassThreshold", 0, 1).name("Grass Threshold").onChange(() => chunkManager.refreshChunks());
+advBiomeFolder.add(envParams.biome, "forestThreshold", 0, 1).name("Forest Threshold").onChange(() => chunkManager.refreshChunks());
+advBiomeFolder.add(envParams.biome, "influence", 0, 2).name("Biome Influence").onChange(() => chunkManager.refreshChunks());
+advBiomeFolder.add(envParams.biome, "blend", 0, 1).name("Biome Blend");
+
+// Biome-specific subfolders
+const biomes = ["jungle", "forest", "grassland", "dry"];
+biomes.forEach(b => {
+  const f = advBiomeFolder.addFolder(b.charAt(0).toUpperCase() + b.slice(1));
+  f.add(envParams.biomes[b], "treeDensity", 0, 200).name("Tree Density").onChange(() => chunkManager.refreshChunks());
+  f.add(envParams.biomes[b], "grassDensity", 0, 3000).name("Grass Density").onChange(() => chunkManager.refreshChunks());
+  f.add(envParams.biomes[b], "bushDensity", 0, 500).name("Bush Density").onChange(() => chunkManager.refreshChunks());
+  f.add(envParams.biomes[b], "rockDensity", 0, 100).name("Rock Density").onChange(() => chunkManager.refreshChunks());
+  f.add(envParams.biomes[b], "clusterStrength", 0, 1).name("Cluster Strength").onChange(() => chunkManager.refreshChunks());
+});
+
+const pathFolder = gui.addFolder("🛤️ Path Settings");
+pathFolder.add(envParams.path, "strength", 0, 2).name("Path Strength").onChange(() => chunkManager.refreshChunks());
+pathFolder.add(envParams.path, "width", 0, 0.5).name("Path Width").onChange(() => chunkManager.refreshChunks());
+pathFolder.add(envParams.path, "influence", 0, 2).name("Path Influence").onChange(() => chunkManager.refreshChunks());
+
+const debugFolder = gui.addFolder("🛠️ Debug");
+debugFolder.add(envParams.debug, "showBiome").name("Show Biomes").onChange((v) => {
+  envUniforms.uShowBiomeDebug.value = v;
+});
+
+const terrainTexFolder = gui.addFolder("🎨 Terrain Textures");
+terrainTexFolder.add(envParams.terrain, "texScale", 1, 50, 0.1).name("Texture Scale");
+terrainTexFolder.add(envParams.terrain, "grassTextureStrength", 0, 2).name("Grass Strength");
+terrainTexFolder.add(envParams.terrain, "dirtTextureStrength", 0, 2).name("Dirt Strength");
+terrainTexFolder.add(envParams.terrain, "pathStrength", 0, 2).name("Path Strength");
+terrainTexFolder.add(envParams.terrain, "intensity", 0, 5, 0.1).name("Light Intensity");
+
+const perfFolder = gui.addFolder("🎮 Performance");
+perfFolder.add(envParams.performance, "enableLOD").name("Enable LOD");
+perfFolder.add(envParams.terrain, "lodDistNear", 20, 200, 10).name("LOD Near");
+perfFolder.add(envParams.performance, "lodFar", 50, 500, 10).name("LOD Far");
+perfFolder.add(envParams.performance, "maxInstances", 1000, 100000, 1000).name("Max Instances");
+
+const randomFolder = gui.addFolder("🎲 Randomness");
+randomFolder.add(envParams.random, "seed", 0, 100000, 1).name("Global Seed");
+randomFolder.add(envParams.random, "strength", 0, 1).name("Rand Strength");
+
+
+
+gui.add({ regenerate: () => chunkManager.refreshChunks() }, "regenerate").name("🔄 Regenerate World");
+
+const spectatorFolder = gui.addFolder("🎥 Spectator Mode");
+spectatorFolder.add(envParams.spectator, "active").name("Active").listen().onChange((v) => {
+  if (v) {
+    // When activating, sync camera pitch/yaw to current state
+  }
+});
+spectatorFolder.add(envParams.spectator, "speed", 1, 100, 1).name("Speed");
+
+const interactionFolder = gui.addFolder("🏃 Player Interaction");
+interactionFolder.add(envParams.interaction, "radius", 0.5, 5, 0.1).name("Radius");
+interactionFolder.add(envParams.interaction, "strength", 0, 2, 0.1).name("Strength");
+
+// Toggle with E for Mode Switch
+window.addEventListener("keydown", (e) => {
+  if (e.code === "KeyP") {
+    modeController.toggleMode();
+  }
+
+  if (e.ctrlKey && e.code === "KeyM") {
+    envParams.spectator.active = !envParams.spectator.active;
+    e.preventDefault();
+  }
 });
 
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-dirLight.position.set(10, 20, 10);
-dirLight.castShadow = true;
-scene.add(dirLight);
+/* =========================
+   CHARACTER
+========================= */
 
-const terrain = new InfiniteTerrain(scene, world);
-
-// const network = new Network("ws://192.168.1.7:3000");
-
-// Choose character
 let modelChoice = null;
+
 while (!modelChoice) {
   const choice = prompt("Choose your character: 'soldier' or 'enemy'");
   if (choice === "soldier" || choice === "enemy") modelChoice = choice;
 }
+
 const modelPath =
-  modelChoice === "soldier" ? "/models/soldier2.glb" : "/models/soldier2.glb";
-// const startPos = new THREE.Vector3(Math.random() * 5, 2, Math.random() * 5);
-const startPos = new THREE.Vector3(19, 2, 11.3);
+  modelChoice === "soldier"
+    ? "/models/soldier.glb"
+    : "/models/soldier.glb";
+
+const startPos = new THREE.Vector3(19, 4, 21.3);
+
+const gameCharacters = [];
 
 const localChar = new Character(
   scene,
@@ -77,212 +365,248 @@ const localChar = new Character(
   modelPath,
   true,
   startPos,
+  loadingManager
 );
-const remoteChars = new Map();
+gameCharacters.push(localChar);
 
-const interior = new Interior(
+// Spawn Enemy
+const enemyStart = startPos.clone().add(new THREE.Vector3(0, 0, -2));
+const enemyChar = new Character(
   scene,
+  terrain,
   world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, 10),
-  2,
+  modelPath,
+  false,
+  enemyStart,
+  loadingManager
 );
+gameCharacters.push(enemyChar);
 
-const interior2 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, 20),
-  2,
-);
+// Link references
+localChar.gameCharacters = gameCharacters;
+enemyChar.gameCharacters = gameCharacters;
+modeController.character = localChar;
+const vegManager = chunkManager.vegManager;
 
-const interior3 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, 30),
-  2,
-);
-const interior4 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, 0),
-  2,
-);
-const interior5 = new Interior(
-  scene,
-  world,
-  "/models/room.glb",
-  new THREE.Vector3(10, 0, -10),
-  2,
-);
+// Build collapsible folder-tree model list in the Editor UI
+vegManager.onLoad(() => {
+  const list = document.getElementById("model-list");
+  if (!list) return;
+  list.innerHTML = ""; // clear any stale entries
 
+  let activeItem = null; // track the currently highlighted item
 
+  for (const [category, models] of vegManager.models) {
+    // ── Folder header ──────────────────────────────────────────
+    const folder = document.createElement("div");
+    folder.className = "tree-folder";
 
+    const arrow = document.createElement("span");
+    arrow.className = "tree-arrow";
+    arrow.innerText = "▶";
 
+    const label = document.createElement("span");
+    label.innerText = ` ${category}`;
 
+    const count = document.createElement("small");
+    count.innerText = ` (${models.length})`;
+    count.style.opacity = "0.5";
 
-const wall = new InvisibleMesh(
-  scene,
-  world,
-  10.9, // width
-  3, // height
-  0.7, // depth
-  new THREE.Vector3(5.1, 2, 9.1),
-  new THREE.Euler(0, Math.PI / 2, 0),
-);
+    folder.appendChild(arrow);
+    folder.appendChild(label);
+    folder.appendChild(count);
+    list.appendChild(folder);
 
-const wall2 = new InvisibleMesh(
-  scene,
-  world,
-  10.9, // width
-  3, // height
-  0.7, // depth
-  new THREE.Vector3(10.8, 2, 14.5),
-  new THREE.Euler(0, Math.PI, 0),
-);
-const wall3 = new InvisibleMesh(
-  scene,
-  world,
-  4.9, // width
-  3, // height
-  0.7, // depth
-  new THREE.Vector3(16, 2, 11.5),
-  new THREE.Euler(0, Math.PI / 2, 0),
-);
+    // ── Items container (collapsed by default) ──────────────────
+    const itemsContainer = document.createElement("div");
+    itemsContainer.className = "tree-items";
+    itemsContainer.style.display = "none";
 
-const wall4 = new InvisibleMesh(
-  scene,
-  world,
-  10.9, // width
-  3, // height
-  0.7, // depth
-  new THREE.Vector3(10.8, 2, 3.7),
-  new THREE.Euler(0, Math.PI, 0),
-);
+    models.forEach((model, idx) => {
+      const item = document.createElement("div");
+      item.className = "tree-item";
+      // Clean up the raw filename into a readable label
+      item.innerText = model.name
+        ? model.name.replace(/_/g, " ")
+        : `Model ${idx + 1}`;
+      item.dataset.category = category;
+      item.dataset.index = idx;
 
-const wall5 = new InvisibleMesh(
-  scene,
-  world,
-  1.7, // width
-  3, // height
-  0.7, // depth
-  new THREE.Vector3(16.6, 2, 9.1),
-  new THREE.Euler(0, Math.PI, 0),
-);
+      item.addEventListener("click", (e) => {
+        e.stopPropagation();
+        // Deselect previous
+        if (activeItem) activeItem.classList.remove("tree-item--active");
+        activeItem = item;
+        item.classList.add("tree-item--active");
+        editorController.setSelection(category, idx);
+      });
 
-const wall6 = new InvisibleMesh(
-  scene,
-  world,
-  1.7, // width
-  3, // height
-  0.7, // depth
-  new THREE.Vector3(16.6, 2, 4.4),
-  new THREE.Euler(0, Math.PI, 0),
-);
-// Join network once connection opens
-// network.ws.onopen = () => {
-//   network.join(
-//     modelPath,
-//     localChar.position.toArray(),
-//     localChar.model?.rotation.toArray() || [0, 0, 0],
-//   );
-// };
+      itemsContainer.appendChild(item);
+    });
 
-// // Handle updates from server
-// network.onUpdate = (chars) => {
-//   chars.forEach((c) => {
-//     if (c.id === network.id) return;
+    list.appendChild(itemsContainer);
 
-//     let char = remoteChars.get(c.id);
-//     if (!char) {
-//       char = new Character(
-//         scene,
-//         terrain,
-//         world,
-//         c.model,
-//         false,
-//         new THREE.Vector3().fromArray(c.position),
-//       );
-//       remoteChars.set(c.id, char);
-//     }
-//     char.setRemoteState(c.position, c.rotation, c.anim);
-//   });
-// };
+    // ── Toggle folder open/close ────────────────────────────────
+    folder.addEventListener("click", () => {
+      const isOpen = itemsContainer.style.display !== "none";
+      itemsContainer.style.display = isOpen ? "none" : "block";
+      arrow.innerText = isOpen ? "▶" : "▼";
+      folder.classList.toggle("tree-folder--open", !isOpen);
+    });
+  }
 
-// // Remove characters on leave
-// network.onLeave = (id) => {
-//   const char = remoteChars.get(id);
-//   if (char && char.model) scene.remove(char.model);
-//   remoteChars.delete(id);
-// };
-
-// network.onDamage = ({ targetId, health }) => {
-//   if (targetId === network.id) {
-//     localChar.health = health;
-//     localChar.updateHealthBar();
-//     localChar.spawnBloodEffect();
-//     return;
-//   }
-
-//   const target = remoteChars.get(targetId);
-//   if (target) {
-//     target.health = health;
-//     target.updateHealthBar();
-//     target.spawnBloodEffect();
-//   }
-// };
-
-// Camera
-let yaw = 0,
-  pitch = 0;
-const mouseSensitivity = 0.002;
-document.body.addEventListener("click", () =>
-  document.body.requestPointerLock(),
-);
-document.addEventListener("mousemove", (e) => {
-  if (document.pointerLockElement !== document.body) return;
-  yaw -= e.movementX * mouseSensitivity;
-  pitch -= e.movementY * mouseSensitivity;
-  pitch = Math.max(-Math.PI / 6, Math.min(Math.PI / 4, pitch));
+  // Auto-open the first folder and select its first model
+  const firstFolder = list.querySelector(".tree-folder");
+  const firstItems = list.querySelector(".tree-items");
+  const firstItem = list.querySelector(".tree-item");
+  if (firstFolder) {
+    firstItems.style.display = "block";
+    firstFolder.querySelector(".tree-arrow").innerText = "▼";
+    firstFolder.classList.add("tree-folder--open");
+  }
+  if (firstItem) {
+    firstItem.classList.add("tree-item--active");
+    activeItem = firstItem;
+    editorController.setSelection(
+      firstItem.dataset.category,
+      parseInt(firstItem.dataset.index, 10)
+    );
+  }
 });
 
-// Animate
-let lastTime = performance.now();
+
+
+
+document.getElementById("export-json").onclick = () => placedObjectManager.exportJSON();
+document.getElementById("load-json").onclick = () => placedObjectManager.loadJSON(envParams.mode.biomeFile);
+
+if (envParams.mode.type === "runtime") {
+  placedObjectManager.loadJSON(envParams.mode.biomeFile);
+}
+
+
+// Fog system removed
+
+
+/* =========================
+   CAMERA CONTROL
+========================= */
+
+
+
+const mouseSensitivity = 0.002;
+
+// In editor mode: rotate camera only while RIGHT mouse button is held (drag-to-orbit)
+let editorDragging = false;
+
+document.body.addEventListener("click", () => {
+  if (envParams.mode.type === "runtime") {
+    document.body.requestPointerLock();
+  }
+});
+
+document.addEventListener("mousedown", (e) => {
+  // Right-click (button 2) or middle-click (button 1) starts editor orbit
+  if (envParams.mode.type === "editor" && (e.button === 2 || e.button === 1)) {
+    editorDragging = true;
+    e.preventDefault();
+  }
+});
+
+document.addEventListener("mouseup", (e) => {
+  if (e.button === 2 || e.button === 1) {
+    editorDragging = false;
+  }
+});
+
+// Prevent context menu on right-click while in editor mode
+document.addEventListener("contextmenu", (e) => {
+  if (envParams.mode.type === "editor") e.preventDefault();
+});
+
+document.addEventListener("mousemove", (e) => {
+  // Runtime: require pointer lock
+  if (envParams.mode.type === "runtime" && document.pointerLockElement !== document.body) return;
+
+  // Editor: only orbit when dragging with right/middle mouse button
+  if (envParams.mode.type === "editor") {
+    if (!editorDragging) return;
+  }
+
+  yaw -= e.movementX * mouseSensitivity;
+  pitch -= e.movementY * mouseSensitivity;
+
+  if (!envParams.spectator.active) {
+    pitch = Math.max(-Math.PI / 6, Math.min(Math.PI / 4, pitch));
+  } else {
+    pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
+  }
+});
+
+
+/* =========================
+   GAME LOOP
+========================= */
 
 function animate() {
   requestAnimationFrame(animate);
+
+  const elapsedTime = clock.getElapsedTime();
+  envUniforms.uTime.value = elapsedTime;
+
+  chunkManager.update(camera.position);
+
+  //   sky.position.copy(camera.position);
+
   perf.begin();
 
   const now = performance.now();
   const dt = Math.min((now - lastTime) / 1000, 0.033);
   lastTime = now;
 
+  if (localChar && localChar.model) {
+    const playerPos = localChar.model.position;
+    chunkManager.envUniforms.uPlayerPos.value.copy(playerPos);
+  }
+
   world.step();
 
-  const { vertices, colors } = world.debugRender();
+  if (!envParams.spectator.active && envParams.mode.type !== "editor") {
+    gameCharacters.forEach(char => char.update(dt));
+  } else {
+    const keys = localChar.input.keys;
+    const speed = envParams.spectator.speed;
 
-  debugLines.geometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(vertices, 3)
-  );
+    // ✅ reuse vectors
+    tempVec1.set(
+      Math.sin(yaw) * Math.cos(pitch),
+      Math.sin(pitch),
+      Math.cos(yaw) * Math.cos(pitch)
+    );
 
-  debugLines.geometry.setAttribute(
-    "color",
-    new THREE.BufferAttribute(colors, 4)
-  );
+    tempVec2.crossVectors(new THREE.Vector3(0, 1, 0), tempVec1).normalize();
 
-  debugLines.geometry.computeBoundingSphere();
+    if (keys["KeyW"]) camera.position.addScaledVector(tempVec1, -speed * dt);
+    if (keys["KeyS"]) camera.position.addScaledVector(tempVec1, speed * dt);
+    if (keys["KeyA"]) camera.position.addScaledVector(tempVec2, -speed * dt);
+    if (keys["KeyD"]) camera.position.addScaledVector(tempVec2, speed * dt);
+    if (keys["Space"]) camera.position.y += speed * dt;
+    if (keys["ShiftLeft"]) camera.position.y -= speed * dt;
 
+    camera.lookAt(
+      camera.position.x - tempVec1.x,
+      camera.position.y - tempVec1.y,
+      camera.position.z - tempVec1.z
+    );
+  }
 
-  localChar.update(dt);
+  // Fog update removed
 
-  if (localChar.model) {
-    const camDist = 5;
-    const camHeight = 3;
+  if (localChar.model && !envParams.spectator.active && envParams.mode.type !== "editor") {
+    const camDist = 1.5;
+    const camHeight = 1.6;
 
-    const camDir = new THREE.Vector3(
+    tempVec1.set(
       Math.sin(yaw) * Math.cos(pitch),
       Math.sin(pitch),
       Math.cos(yaw) * Math.cos(pitch)
@@ -290,7 +614,7 @@ function animate() {
 
     camera.position
       .copy(localChar.model.position)
-      .addScaledVector(camDir, camDist);
+      .addScaledVector(tempVec1, camDist);
 
     camera.position.y += camHeight;
 
@@ -301,71 +625,32 @@ function animate() {
     );
   }
 
+  // Update Environment
+  sky.update(camera);
+  // clouds.update(elapsedTime, camera); 
+  clouds.update(elapsedTime, camera, sun.position);
+  weather.update(elapsedTime);
+
   renderer.render(scene, camera);
   perf.end();
 }
 
-// function animate() {
-//   requestAnimationFrame(animate);
-//   perf.begin();
-//   const now = performance.now();
-//   const dt = Math.min((now - lastTime) / 1000, 0.033);
-//   lastTime = now;
-//   world.step();
+/* =========================
+   START GAME AFTER LOAD
+========================= */
 
-//   const { vertices, colors } = world.debugRender();
+function startGame() {
+  animate();
+}
 
-//   debugLines.geometry.setAttribute(
-//     "position",
-//     new THREE.BufferAttribute(vertices, 3),
-//   );
-
-//   debugLines.geometry.setAttribute(
-//     "color",
-//     new THREE.BufferAttribute(colors, 4),
-//   );
-
-//   debugLines.geometry.computeBoundingSphere();
-
-//   localChar.update(dt);
-//   // remoteChars.forEach((c) => c.update(dt));
-
-//   // if (localChar.model && network.ws.readyState === WebSocket.OPEN) {
-//   //   network.sendState(
-//   //     localChar.model.position.toArray(),
-//   //     localChar.model.rotation.toArray(),
-//   //     localChar.currentAnim,
-//   //   );
-//   // }
-
-//   // Camera follow
-//   if (localChar.model) {
-//     const camDist = 5;
-//     const camHeight = 3;
-//     const camDir = new THREE.Vector3(
-//       Math.sin(yaw) * Math.cos(pitch),
-//       Math.sin(pitch),
-//       Math.cos(yaw) * Math.cos(pitch),
-//     );
-//     camera.position
-//       .copy(localChar.model.position)
-//       .addScaledVector(camDir, camDist);
-//     camera.position.y += camHeight;
-//     camera.lookAt(
-//       localChar.model.position.x,
-//       localChar.model.position.y + 1.5,
-//       localChar.model.position.z,
-//     );
-//   }
-
-//   renderer.render(scene, camera);
-//   perf.end();
-
-// }
-animate();
+/* =========================
+   RESIZE
+========================= */
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
+
   camera.updateProjectionMatrix();
+
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
