@@ -1,30 +1,13 @@
 {
-  "objects": [
- 
-  ],
+  "objects": [],
   "grass": [
     {
       "type": "grass_animated",
       "variation": "lush_jungle",
-      "chunk": [
-        0,
-        0
-      ],
-      "position": [
-        5.333261085221544,
-        3.1094694093355884,
-        15.182922218446397
-      ],
-      "rotation": [
-        0,
-        1.4999999999999998,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
+      "chunk": [0, 0],
+      "position": [5.333261085221544, 3.1094694093355884, 15.182922218446397],
+      "rotation": [0, 1.4999999999999998, 0],
+      "scale": [1, 1, 1],
       "params": {
         "animated": true,
         "height": 1.5,
@@ -38,31 +21,102 @@
       }
     }
   ],
-  "splines": [
-    {
-      "type": "ridge",
-      "points": [
-        [
-          336.91512109532306,
-          34.3940466214453
-        ],
-        [
-          337.31836166903133,
-          35.63320167254855
-        ],
-        [
-          336.2582319565746,
-          33.89477674831795
-        ],
-        [
-          336.52452658344254,
-          34.11349832466537
-        ]
-      ],
-      "width": 10,
-      "strength": 5,
-      "falloff": 2,
-      "id": "8b8a5f98-720d-4541-923a-1ab3de1eba22"
+
+  "splines": {
+    "splines": [
+      {
+        "type": "ridge",
+        "points": [[300,20],[340,40],[380,55],[420,60],[460,50]],
+        "width": 40,
+        "strength": 10,
+        "falloff": 4.5,
+        "id": "ridge-main-1",
+        "bounds": {
+          "minX": 260,
+          "maxX": 500,
+          "minZ": 0,
+          "maxZ": 100
+        }
+      },
+      {
+        "type": "ridge",
+        "points": [[280,80],[320,95],[360,110],[400,120]],
+        "width": 35,
+        "strength": 8,
+        "falloff": 4.2,
+        "id": "ridge-secondary-1",
+        "bounds": {
+          "minX": 240,
+          "maxX": 440,
+          "minZ": 60,
+          "maxZ": 150
+        }
+      },
+      {
+        "type": "valley",
+        "points": [[310,30],[350,35],[390,38],[430,40],[470,42]],
+        "width": 30,
+        "strength": 6,
+        "falloff": 5.0,
+        "id": "valley-main-1",
+        "bounds": {
+          "minX": 270,
+          "maxX": 510,
+          "minZ": 10,
+          "maxZ": 70
+        }
+      },
+      {
+        "type": "valley",
+        "points": [[300,90],[340,85],[380,80],[420,78]],
+        "width": 25,
+        "strength": 5,
+        "falloff": 4.8,
+        "id": "valley-secondary-1",
+        "bounds": {
+          "minX": 260,
+          "maxX": 460,
+          "minZ": 60,
+          "maxZ": 110
+        }
+      },
+      {
+        "type": "plateau",
+        "points": [[360,60],[380,65],[400,63],[420,60]],
+        "width": 25,
+        "strength": 4,
+        "falloff": 4.0,
+        "id": "plateau-1",
+        "bounds": {
+          "minX": 320,
+          "maxX": 460,
+          "minZ": 40,
+          "maxZ": 90
+        }
+      },
+      {
+        "type": "road",
+        "points": [[290,25],[330,32],[370,36],[410,38],[450,40]],
+        "width": 10,
+        "strength": 1.2,
+        "falloff": 3.0,
+        "id": "road-main",
+        "bounds": {
+          "minX": 250,
+          "maxX": 490,
+          "minZ": 0,
+          "maxZ": 80
+        }
+      }
+    ],
+
+    "heightOffsets": {
+      "5,0": [0, 0, 0],
+      "6,0": [0, 0, 0],
+      "7,0": [0, 0, 0],
+      "5,1": [0, 0, 0],
+      "6,1": [0, 0, 0],
+      "7,1": [0, 0, 0]
     }
-  ]
+  }
 }

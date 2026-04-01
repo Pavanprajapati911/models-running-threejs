@@ -44,7 +44,10 @@ export class TerrainChunk {
 
   generateHeightCPU(geometry) {
     const pos = geometry.attributes.position;
+    const size = this.manager.chunkSize;
+    const half = size / 2;
 
+    // --- 1. Generate terrain height (same as before)
     for (let i = 0; i < pos.count; i++) {
       const localX = pos.getX(i);
       const localZ = pos.getZ(i);
@@ -53,14 +56,47 @@ export class TerrainChunk {
 
       pos.setY(i, this.manager.getHeight(worldX, worldZ));
     }
+
+    // --- 2. Add SKIRTS (THIS FIXES THE CRACKS)
+    const skirtDepth = 10; // increase if gaps still visible
+    const vertices = [];
+
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+
+      // Detect edge vertices
+      const isEdge =
+        Math.abs(x + half) < 0.001 ||
+        Math.abs(x - half) < 0.001 ||
+        Math.abs(z + half) < 0.001 ||
+        Math.abs(z - half) < 0.001;
+
+      if (isEdge) {
+        // duplicate vertex but pushed down
+        vertices.push(x, y - skirtDepth, z);
+      }
+    }
+
+    // Append skirt vertices
+    if (vertices.length > 0) {
+      const newArray = new Float32Array(pos.array.length + vertices.length);
+      newArray.set(pos.array);
+      newArray.set(vertices, pos.array.length);
+
+      geometry.setAttribute("position", new THREE.BufferAttribute(newArray, 3));
+    }
+
+    // --- 3. Recompute normals
     geometry.computeVertexNormals();
-    pos.needsUpdate = true;
+    geometry.attributes.position.needsUpdate = true;
   }
 
   regenerateFromSplines() {
     if (!this.mesh || !this.mesh.geometry) return;
     this.generateHeightCPU(this.mesh.geometry);
-    
+
     if (this.collider) {
       this.manager.world.removeCollider(this.collider, true);
       this.collider = null;
@@ -75,7 +111,7 @@ export class TerrainChunk {
 
   tryCreatePhysics() {
     const dist = this.manager.camera.position.distanceTo(this.mesh.position);
-    if (dist > 50) return; // only near chunks
+    if (dist > 200) return; // only near chunks
 
     const geometry = this.mesh.geometry;
     const vertices = geometry.attributes.position.array;
@@ -387,7 +423,7 @@ export class ChunkManager {
     const maxZ = chunk.z + halfSize;
 
     if (maxX < bounds.minX || minX > bounds.maxX || maxZ < bounds.minZ || minZ > bounds.maxZ) {
-        return false;
+      return false;
     }
     return true;
   }
@@ -411,7 +447,7 @@ export class ChunkManager {
    */
   getHeight(x, z) {
     if (this.terrainSplineManager) {
-        return this.terrainSplineManager.evaluateHeight(x, z);
+      return this.terrainSplineManager.evaluateHeight(x, z);
     }
     return this.calculateHeight(x, z);
   }

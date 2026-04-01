@@ -260,7 +260,8 @@ const terrain = chunkManager; // alias for compatibility if needed
 const raycaster = new THREE.Raycaster();
 const editorController = new EditorController(
   scene, camera, raycaster,
-  chunkManager, placedObjectManager, terrainSplineManager
+  chunkManager, placedObjectManager, terrainSplineManager,
+  gui
 );
 const modeController = new ModeController({ envParams, character: null, editorController });
 
@@ -294,8 +295,8 @@ gui.add({ regenerate: () => chunkManager.refreshChunks() }, "regenerate").name("
 const spectatorFolder = gui.addFolder("🎥 Spectator Mode");
 spectatorFolder.add(envParams.spectator, "active").name("Active").listen().onChange((v) => {
   gameCharacters.forEach(c => {
-      if (c.setEnabled) c.setEnabled(!v);
-      else c.enabled = !v;
+    if (c.setEnabled) c.setEnabled(!v);
+    else c.enabled = !v;
   });
   if (v) {
     // When activating, sync camera pitch/yaw to current state
@@ -316,8 +317,8 @@ window.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.code === "KeyM") {
     envParams.spectator.active = !envParams.spectator.active;
     gameCharacters.forEach(c => {
-        if (c.setEnabled) c.setEnabled(!envParams.spectator.active);
-        else c.enabled = !envParams.spectator.active;
+      if (c.setEnabled) c.setEnabled(!envParams.spectator.active);
+      else c.enabled = !envParams.spectator.active;
     });
     e.preventDefault();
   }
@@ -330,7 +331,7 @@ window.addEventListener("keydown", (e) => {
 
 const modelPath = "/models/soldier.glb";
 
-const startPos = new THREE.Vector3(339, 4, 21.3);
+const startPos = new THREE.Vector3(400, 4, 21.3);
 
 const gameCharacters = [];
 
@@ -454,7 +455,7 @@ vegManager.onLoad(() => {
 
 
 document.getElementById("export-json").onclick = () => placedObjectManager.exportJSON();
-document.getElementById("load-json").onclick   = () => placedObjectManager.loadJSON(envParams.mode.biomeFile);
+document.getElementById("load-json").onclick = () => placedObjectManager.loadJSON(envParams.mode.biomeFile);
 
 if (envParams.mode.type === "runtime") {
   placedObjectManager.loadJSON(envParams.mode.biomeFile);

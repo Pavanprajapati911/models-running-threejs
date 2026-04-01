@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Terrain Editor</title>
     <link rel="stylesheet" href="./style.css">
 </head>
+
 <body>
     <!-- Loader -->
     <div id="loader">
@@ -25,10 +27,11 @@
 
         <!-- ══ OBJECT MODE PANEL ════════════════════════════════════════════ -->
         <div id="object-mode-panel">
-        <p>
+            <p>
                 Left Click → Place &nbsp;|&nbsp; Shift+Click → Delete<br>
                 Right Drag → Orbit &nbsp;|&nbsp; Scroll → Rotate &nbsp;|&nbsp; WASD → Fly<br>
-                <kbd>T</kbd>/<kbd>G</kbd> Scale &nbsp;|&nbsp; <kbd>R</kbd> Rotate sel. &nbsp;|&nbsp; Ctrl+C/V Copy/Paste<br>
+                <kbd>T</kbd>/<kbd>G</kbd> Scale &nbsp;|&nbsp; <kbd>R</kbd> Rotate sel. &nbsp;|&nbsp; Ctrl+C/V
+                Copy/Paste<br>
                 <kbd>Ctrl+Z</kbd> Undo &nbsp;<span id="undo-count" style="opacity:0.45;">↩️ 0</span>
             </p>
             <div id="model-list"></div>
@@ -47,10 +50,10 @@
             <!-- Spline type buttons -->
             <div class="terrain-section-label">SPLINE TYPE</div>
             <div class="terrain-type-row">
-                <button id="btn-ridge"   class="type-btn active" title="R key">⛰️ Ridge</button>
-                <button id="btn-valley"  class="type-btn"        title="V key">🏞️ Valley</button>
-                <button id="btn-plateau" class="type-btn"        title="F key">🗻 Plateau</button>
-                <button id="btn-road"    class="type-btn"        title="O key">🛤️ Road</button>
+                <button id="btn-ridge" class="type-btn active" title="R key">⛰️ Ridge</button>
+                <button id="btn-valley" class="type-btn" title="V key">🏞️ Valley</button>
+                <button id="btn-plateau" class="type-btn" title="F key">🗻 Plateau</button>
+                <button id="btn-road" class="type-btn" title="O key">🛤️ Road</button>
             </div>
 
             <!-- Width / Strength display -->
@@ -71,7 +74,9 @@
                 <div class="key-row"><kbd>Enter</kbd> Finalise spline</div>
                 <div class="key-row"><kbd>Esc</kbd> Cancel / deselect</div>
                 <div class="key-row"><kbd>Del</kbd> Delete selected spline</div>
-                <div class="key-row"><kbd>R</kbd> Ridge &nbsp;<kbd>V</kbd> Valley &nbsp;<kbd>F</kbd> Plateau &nbsp;<kbd>O</kbd> Road</div>
+                <div class="key-row"><kbd>R</kbd> Ridge &nbsp;<kbd>V</kbd> Valley &nbsp;<kbd>F</kbd> Plateau
+                    &nbsp;<kbd>O</kbd> Road</div>
+                <div class="key-row"><kbd>Q</kbd>/<kbd>E</kbd> Raise/Lower &nbsp; <kbd>U</kbd>/<kbd>I</kbd> Smooth/Flatten</div>
                 <div class="key-row"><kbd>[</kbd><kbd>]</kbd> Width &nbsp; <kbd>-</kbd><kbd>+</kbd> Strength</div>
                 <div class="key-row">Drag control spheres to move points</div>
                 <div class="key-row"><kbd>Ctrl+Z</kbd> Undo last action</div>
@@ -80,12 +85,13 @@
             <!-- Export terrain-only -->
             <div class="editor-btn-row" style="margin-top:8px;">
                 <button id="export-terrain">⛰️ Export Terrain</button>
-                <button id="export-json"   style="display:none;">💾 Export Map</button>
-                <button id="load-json"     style="display:none;">📥 Load Map</button>
+                <button id="export-json" style="display:none;">💾 Export Map</button>
+                <button id="load-json" style="display:none;">📥 Load Map</button>
             </div>
             <div class="editor-btn-row">
-                <button id="export-full" onclick="document.getElementById('export-json').click()">💾 Export Full Map</button>
-                <button id="load-full"   onclick="document.getElementById('load-json').click()">📥 Load Full Map</button>
+                <button id="export-full" onclick="document.getElementById('export-json').click()">💾 Export Full
+                    Map</button>
+                <button id="load-full" onclick="document.getElementById('load-json').click()">📥 Load Full Map</button>
             </div>
 
         </div>
@@ -96,4 +102,5 @@
     <canvas class="webgl"></canvas>
     <script type="module" src="./src/main.js"></script>
 </body>
+
 </html>

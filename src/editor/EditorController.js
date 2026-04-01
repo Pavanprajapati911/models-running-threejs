@@ -13,7 +13,7 @@ import { GRASS_VARIATIONS } from "../environment/GrassManager.js";
 const UNDO_MAX = 60;
 
 export class EditorController {
-  constructor(scene, camera, raycaster, chunkManager, placedObjectManager, terrainSplineManager) {
+  constructor(scene, camera, raycaster, chunkManager, placedObjectManager, terrainSplineManager, gui) {
     this.scene = scene;
     this.camera = camera;
     this.raycaster = raycaster;
@@ -21,6 +21,7 @@ export class EditorController {
     this.chunkSize = chunkManager.chunkSize;
     this.placedObjectManager = placedObjectManager;
     this.terrainSplineManager = terrainSplineManager;
+    this.gui = gui;
 
     this.active = false;
     this.mouse = new THREE.Vector2();
@@ -49,6 +50,10 @@ export class EditorController {
     this.scene.add(this.splineLinesGroup);
 
     this.terrainSubMode = "spline"; // "spline" | "sculpt"
+    this.terrainSplineType = "ridge";
+    this.terrainSplineWidth = 10;
+    this.terrainSplineStrength = 5;
+
     this.brushMode = "raise";       // "raise", "lower", "smooth", "flatten"
     this.brushRadius = 5;
     this.brushStrength = 0.5;
@@ -71,6 +76,8 @@ export class EditorController {
 
     this.initPreview();
     this.bindEvents();
+    this._initTerrainButtons();
+    this._setupHelpGui();
     this.renderSplines();
   }
 
@@ -100,6 +107,7 @@ export class EditorController {
   enable() {
     this.active = true;
     if (this.previewMesh) this.previewMesh.visible = true;
+    this.renderSplines();
   }
 
   disable() {
@@ -108,6 +116,7 @@ export class EditorController {
     if (this.selectionBox) this.selectionBox.visible = false;
     this.selectedObject = null;
     this.closeGrassGui();
+    this.renderSplines();
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -145,21 +154,197 @@ export class EditorController {
 
   setEditorMode(mode) {
     if (mode === this.editorMode) return;
-    if (this.editorMode === "object") {
+    const oldMode = this.editorMode;
+    this.editorMode = mode;
+
+    if (oldMode === "object") {
       this.clearPreview();
       this.selectedObject = null;
       if (this.selectionBox) this.selectionBox.visible = false;
       this.closeGrassGui();
-    } else if (this.editorMode === "terrain") {
+    } else if (oldMode === "terrain") {
       this.isDrawingSpline = false;
       this.tempSplinePoints = [];
       this.selectedSplineId = null;
       this.terrainSubMode = "spline"; // default reset
       this.brushIndicator.visible = false;
-      this.renderSplines();
     }
-    this.editorMode = mode;
+
     this._broadcastModeChange();
+    this.renderSplines();
+  }
+
+  _initTerrainButtons() {
+    const types = {
+      "btn-ridge": "ridge",
+      "btn-valley": "valley",
+      "btn-plateau": "plateau",
+      "btn-road": "road"
+    };
+
+    for (const [id, type] of Object.entries(types)) {
+      const btn = document.getElementById(id);
+      if (btn) {
+        btn.addEventListener("click", () => {
+          this.terrainSplineType = type;
+
+          // If a spline is selected, update it immediately
+          if (this.selectedSplineId) {
+            const spline = this.terrainSplineManager.getSplines().find(s => s.id === this.selectedSplineId);
+            if (spline) {
+              const oldType = spline.type;
+              spline.type = type;
+              this.terrainSplineManager.updateSpline(spline.id, spline);
+              this.terrainSplineManager.flushUpdates();
+
+              this._pushUndo(() => {
+                spline.type = oldType;
+                this.terrainSplineManager.updateSpline(spline.id, spline);
+                this.terrainSplineManager.flushUpdates();
+                this._updateTerrainUI();
+                this.renderSplines();
+              });
+            }
+          }
+          this._updateTerrainUI();
+          this.renderSplines();
+        });
+      }
+    }
+
+    // Hook up Width/Strength kbd clicks
+    const widthCtrls = document.querySelectorAll("#terrain-mode-panel .param-row:nth-child(1) kbd");
+    if (widthCtrls.length === 2) {
+      widthCtrls[0].style.cursor = "pointer";
+      widthCtrls[0].addEventListener("click", () => {
+        const spline = this.selectedSplineId ? this.terrainSplineManager.getSplines().find(s => s.id === this.selectedSplineId) : null;
+        if (spline) spline.width = Math.max(1, spline.width - 1);
+        else this.terrainSplineWidth = Math.max(1, this.terrainSplineWidth - 1);
+        this.terrainSplineManager.flushUpdates();
+        this._updateTerrainUI();
+        this.renderSplines();
+      });
+      widthCtrls[1].style.cursor = "pointer";
+      widthCtrls[1].addEventListener("click", () => {
+        const spline = this.selectedSplineId ? this.terrainSplineManager.getSplines().find(s => s.id === this.selectedSplineId) : null;
+        if (spline) spline.width = Math.min(100, spline.width + 1);
+        else this.terrainSplineWidth = Math.min(100, this.terrainSplineWidth + 1);
+        this.terrainSplineManager.flushUpdates();
+        this._updateTerrainUI();
+        this.renderSplines();
+      });
+    }
+
+    const strengthCtrls = document.querySelectorAll("#terrain-mode-panel .param-row:nth-child(2) kbd");
+    if (strengthCtrls.length === 2) {
+      strengthCtrls[0].style.cursor = "pointer";
+      strengthCtrls[0].addEventListener("click", () => {
+        const spline = this.selectedSplineId ? this.terrainSplineManager.getSplines().find(s => s.id === this.selectedSplineId) : null;
+        if (spline) spline.strength = Math.max(0, spline.strength - 0.5);
+        else this.terrainSplineStrength = Math.max(0, this.terrainSplineStrength - 0.5);
+        this.terrainSplineManager.flushUpdates();
+        this._updateTerrainUI();
+        this.renderSplines();
+      });
+      strengthCtrls[1].style.cursor = "pointer";
+      strengthCtrls[1].addEventListener("click", () => {
+        const spline = this.selectedSplineId ? this.terrainSplineManager.getSplines().find(s => s.id === this.selectedSplineId) : null;
+        if (spline) spline.strength = Math.min(100, spline.strength + 0.5);
+        else this.terrainSplineStrength = Math.min(100, this.terrainSplineStrength + 0.5);
+        this.terrainSplineManager.flushUpdates();
+        this._updateTerrainUI();
+        this.renderSplines();
+      });
+    }
+
+    // Hook up Export Terrain
+    const exportTerrainBtn = document.getElementById("export-terrain");
+    if (exportTerrainBtn) {
+      exportTerrainBtn.addEventListener("click", () => {
+        const data = this.terrainSplineManager.exportJSON();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "terrain_splines.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+  }
+
+  _updateTerrainUI() {
+    // Update spline type buttons active class
+    const typeIds = ["btn-ridge", "btn-valley", "btn-plateau", "btn-road"];
+    const currentType = this.selectedSplineId
+      ? (this.terrainSplineManager.getSplines().find(s => s.id === this.selectedSplineId)?.type || this.terrainSplineType)
+      : this.terrainSplineType;
+
+    typeIds.forEach(id => {
+      const btn = document.getElementById(id);
+      if (btn) {
+        const btnType = id.replace("btn-", "");
+        btn.classList.toggle("active", btnType === currentType);
+      }
+    });
+
+    // Update Width/Strength labels
+    const currentWidth = this.selectedSplineId
+      ? (this.terrainSplineManager.getSplines().find(s => s.id === this.selectedSplineId)?.width || this.terrainSplineWidth)
+      : this.terrainSplineWidth;
+
+    const currentStrength = this.selectedSplineId
+      ? (this.terrainSplineManager.getSplines().find(s => s.id === this.selectedSplineId)?.strength || this.terrainSplineStrength)
+      : this.terrainSplineStrength;
+
+    const widthVal = document.getElementById("terrain-width-val");
+    if (widthVal) widthVal.textContent = currentWidth.toFixed(1);
+
+    const strengthVal = document.getElementById("terrain-strength-val");
+    if (strengthVal) strengthVal.textContent = currentStrength.toFixed(1);
+
+    // Update status
+    const status = document.getElementById("terrain-status");
+    if (status) {
+      if (this.isDrawingSpline) {
+        status.textContent = `Drawing Spline: ${this.tempSplinePoints.length} points. Enter to finish, Esc cancel.`;
+      } else if (this.selectedSplineId) {
+        status.textContent = `Selected Spline: ${currentType.toUpperCase()}. Use R,V,F,O or Buttons to change type.`;
+      } else {
+        status.textContent = "Click spline / C to draw / 1-2 switch mode";
+      }
+    }
+  }
+
+  _setupHelpGui() {
+    if (!this.gui) return;
+    const folder = this.gui.addFolder("⌨️ Editor Controls").close();
+
+    const controls = {
+      "Switch Mode": "1 (Terrain) | 2 (Object)",
+      "Navigation": "WASD + Mouse (Right Click Drag)",
+      "Toggle Editor": "P key",
+      "--- Object Mode ---": "",
+      "Place/Delete": "L-Click | Shift+L-Click",
+      "Copy/Paste": "Ctrl+C | Ctrl+V",
+      "Rotate Selected": "R key",
+      "Scale Selected": "T (+) | G (-)",
+      "--- Terrain Mode ---": "",
+      "Sub-Modes": "X (Spline) | Q/E/U/I (Sculpt)",
+      "Draw Spline": "C (Start) | L-Click (Points) | Enter (Finish)",
+      "Spline Types": "R (Ridge) | V (Valley) | F (Plateau) | O (Road)",
+      "Spline Params": "[ ] (Width) | - = (Strength)",
+      "Sculpting": "Q(Raise) E(Lower) U(Smooth) I(Flatten)",
+      "Brush Params": "Scroll (Size) | Shift+Scroll (Strength)"
+    };
+
+    for (const [name, value] of Object.entries(controls)) {
+      if (value === "") {
+        folder.add({ label: name }, "label").name(name).disable();
+      } else {
+        folder.add({ val: value }, "val").name(name).disable();
+      }
+    }
   }
 
   _broadcastModeChange() {
@@ -197,7 +382,7 @@ export class EditorController {
     window.addEventListener("mousemove", (e) => {
       if (!this.active) return;
       this.updateMouse(e);
-      
+
       let hit = null;
       if (this.editorMode === "terrain") {
         hit = this._raycastTerrain();
@@ -205,9 +390,9 @@ export class EditorController {
           this.brushIndicator.position.copy(hit);
           this.brushIndicator.visible = true;
           this.brushIndicator.material.color.setHex(
-              this.brushMode === "raise" ? 0x00ff00 : 
-              this.brushMode === "lower" ? 0xff0000 : 
-              this.brushMode === "smooth" ? 0x0000ff : 0xffff00
+            this.brushMode === "raise" ? 0x00ff00 :
+              this.brushMode === "lower" ? 0xff0000 :
+                this.brushMode === "smooth" ? 0x0000ff : 0xffff00
           );
         } else {
           this.brushIndicator.visible = false;
@@ -229,20 +414,20 @@ export class EditorController {
       if (!this.active) return;
       if (this.editorMode === "terrain") {
         this.draggedPointIndex = -1;
-        
+
         if (this.isSculpting) {
           this.isSculpting = false;
           // Commit Undo closure
           if (this.sculptSnapshot) {
-              const snapshotBefore = this.sculptSnapshot;
-              this._pushUndo(() => {
-                  this.terrainSplineManager.heightOffsets.clear();
-                  for (const [k, arr] of snapshotBefore.entries()) {
-                      this.terrainSplineManager.heightOffsets.set(k, new Float32Array(arr));
-                  }
-                  this.chunkManager.regenerateFromSplines();
-              });
-              this.sculptSnapshot = null;
+            const snapshotBefore = this.sculptSnapshot;
+            this._pushUndo(() => {
+              this.terrainSplineManager.heightOffsets.clear();
+              for (const [k, arr] of snapshotBefore.entries()) {
+                this.terrainSplineManager.heightOffsets.set(k, new Float32Array(arr));
+              }
+              this.chunkManager.regenerateFromSplines();
+            });
+            this.sculptSnapshot = null;
           }
         }
       }
@@ -251,7 +436,7 @@ export class EditorController {
     // ── WHEEL ───────────────────────────────────────────────────────────────
     window.addEventListener("wheel", (e) => {
       if (!this.active) return;
-      
+
       if (this.editorMode === "object") {
         if (e.shiftKey) {
           const amt = (e.deltaY > 0 ? -1 : 1) * 0.1;
@@ -337,8 +522,8 @@ export class EditorController {
 
     if (!this.previewMesh.visible) return;
 
-    const pos   = this.previewMesh.position.clone();
-    const rot   = this.rotation.clone();
+    const pos = this.previewMesh.position.clone();
+    const rot = this.rotation.clone();
     const scale = this.scale.clone();
 
     if (e.shiftKey) {
@@ -381,9 +566,9 @@ export class EditorController {
   }
 
   _captureNearbyObjects(pos, radius) {
-    const cs  = this.chunkManager.chunkSize;
-    const cx  = Math.floor(pos.x / cs);
-    const cz  = Math.floor(pos.z / cs);
+    const cs = this.chunkManager.chunkSize;
+    const cx = Math.floor(pos.x / cs);
+    const cz = Math.floor(pos.z / cs);
     const key = `${cx},${cz}`;
     const captured = [];
     const r2 = radius * radius;
@@ -419,8 +604,8 @@ export class EditorController {
 
     if (e.ctrlKey && e.code === "KeyV") {
       if (this.copiedData && this.previewMesh.visible) {
-        const pos   = this.previewMesh.position.clone();
-        const rot   = new THREE.Euler(...this.copiedData.rotation);
+        const pos = this.previewMesh.position.clone();
+        const rot = new THREE.Euler(...this.copiedData.rotation);
         const scale = new THREE.Vector3(...this.copiedData.scale);
         let obj;
         if (this.copiedData.variation) {
@@ -521,7 +706,7 @@ export class EditorController {
   // ══════════════════════════════════════════════════════════════════════════
 
   updateMouse(e) {
-    this.mouse.x =  (e.clientX / window.innerWidth)  * 2 - 1;
+    this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
   }
 
@@ -564,12 +749,12 @@ export class EditorController {
   openGrassGui(data, mesh) {
     this.closeGrassGui();
     this.grassGui = new GUI({ title: `🌿 Edit Patch: ${data.variation}` });
-    this.grassGui.domElement.style.top   = "10px";
+    this.grassGui.domElement.style.top = "10px";
     this.grassGui.domElement.style.right = "340px";
 
-    const params    = data.params;
+    const params = data.params;
     const updateRef = () => {
-      const key   = `${data.chunk[0]},${data.chunk[1]}`;
+      const key = `${data.chunk[0]},${data.chunk[1]}`;
       const chunk = this.chunkManager.chunks.get(key);
       if (chunk) {
         chunk.removeGrassPatch(data);
@@ -582,14 +767,14 @@ export class EditorController {
       }
     };
 
-    this.grassGui.add(params, "height",      0.1,  5,     0.1).onFinishChange(updateRef);
-    this.grassGui.add(params, "width",        0.01, 0.2,   0.005).onFinishChange(updateRef);
-    this.grassGui.add(params, "density",      100,  10000, 100).onFinishChange(updateRef);
-    this.grassGui.add(params, "radius",       1,    30,    1).onFinishChange(updateRef);
-    this.grassGui.add(params, "windStrength", 0,    2,     0.01).onChange(v => {
+    this.grassGui.add(params, "height", 0.1, 5, 0.1).onFinishChange(updateRef);
+    this.grassGui.add(params, "width", 0.01, 0.2, 0.005).onFinishChange(updateRef);
+    this.grassGui.add(params, "density", 100, 10000, 100).onFinishChange(updateRef);
+    this.grassGui.add(params, "radius", 1, 30, 1).onFinishChange(updateRef);
+    this.grassGui.add(params, "windStrength", 0, 2, 0.01).onChange(v => {
       if (mesh.material.uniforms?.uWindStrength) mesh.material.uniforms.uWindStrength.value = v;
     });
-    this.grassGui.add(params, "windSpeed",    0,    10,    0.1).onChange(v => {
+    this.grassGui.add(params, "windSpeed", 0, 10, 0.1).onChange(v => {
       if (mesh.material.uniforms?.uWindSpeed) mesh.material.uniforms.uWindSpeed.value = v;
     });
     this.grassGui.addColor(params, "baseColor").onChange(v => {
@@ -610,109 +795,109 @@ export class EditorController {
 
   _onTerrainMouseDown(e) {
     if (e.button !== 0) return;
-    
+
     const hit = this._raycastTerrain();
     if (!hit) return;
 
     if (this.terrainSubMode === "sculpt") {
-        this.isSculpting = true;
-        this.flattenHeight = hit.y;
-        
-        // Take snapshot for Undo
-        this.sculptSnapshot = new Map();
-        for (const [k, v] of this.terrainSplineManager.heightOffsets.entries()) {
-            this.sculptSnapshot.set(k, new Float32Array(v));
-        }
+      this.isSculpting = true;
+      this.flattenHeight = hit.y;
 
-        this._sculptTerrain(hit);
-        return;
+      // Take snapshot for Undo
+      this.sculptSnapshot = new Map();
+      for (const [k, v] of this.terrainSplineManager.heightOffsets.entries()) {
+        this.sculptSnapshot.set(k, new Float32Array(v));
+      }
+
+      this._sculptTerrain(hit);
+      return;
     }
 
     if (this.isDrawingSpline) {
-        this.tempSplinePoints.push([hit.x, hit.z]);
-        this.renderSplines();
-        return;
+      this.tempSplinePoints.push([hit.x, hit.z]);
+      this.renderSplines();
+      return;
     }
 
     // Check if dragging a point
     const pointHit = this._raycastSplinePoints();
     if (pointHit) {
-        const { splineId, pointIndex } = pointHit.object.userData;
-        this.selectedSplineId = splineId;
-        this.draggedPointIndex = pointIndex;
-        this.renderSplines();
-        return;
+      const { splineId, pointIndex } = pointHit.object.userData;
+      this.selectedSplineId = splineId;
+      this.draggedPointIndex = pointIndex;
+      this.renderSplines();
+      return;
     }
 
     // Check if selecting a spline
     const selected = this._selectClosestSpline(hit.x, hit.z);
     if (selected) {
-        this.selectedSplineId = selected.id;
+      this.selectedSplineId = selected.id;
     } else {
-        this.selectedSplineId = null;
+      this.selectedSplineId = null;
     }
     this.renderSplines();
   }
 
   _onTerrainMouseMove(e, hit) {
     if (this.isSculpting && hit) {
-        this._sculptTerrain(hit);
-        return;
+      this._sculptTerrain(hit);
+      return;
     }
 
     if (this.draggedPointIndex !== -1 && this.selectedSplineId) {
-        const moveHit = hit || this._raycastTerrain();
-        if (moveHit) {
-            const spline = this.terrainSplineManager.getSplines().find(s => s.id === this.selectedSplineId);
-            if (spline && spline.points[this.draggedPointIndex]) {
-                spline.points[this.draggedPointIndex] = [moveHit.x, moveHit.z];
-                this.terrainSplineManager.updateSpline(spline.id, spline);
-                this.terrainSplineManager.flushUpdates();
-                this.renderSplines();
-            }
+      const moveHit = hit || this._raycastTerrain();
+      if (moveHit) {
+        const spline = this.terrainSplineManager.getSplines().find(s => s.id === this.selectedSplineId);
+        if (spline && spline.points[this.draggedPointIndex]) {
+          spline.points[this.draggedPointIndex] = [moveHit.x, moveHit.z];
+          this.terrainSplineManager.updateSpline(spline.id, spline);
+          this.terrainSplineManager.flushUpdates();
+          this.renderSplines();
         }
+      }
     }
   }
 
   _onTerrainKeyDown(e) {
     if (e.code === "KeyQ") { this.terrainSubMode = "sculpt"; this.brushMode = "raise"; return; }
     if (e.code === "KeyE") { this.terrainSubMode = "sculpt"; this.brushMode = "lower"; return; }
-    if (e.code === "KeyR" && !this.selectedSplineId) { this.terrainSubMode = "sculpt"; this.brushMode = "smooth"; return; }
-    if (e.code === "KeyF" && !this.selectedSplineId) { this.terrainSubMode = "sculpt"; this.brushMode = "flatten"; return; }
+    if (e.code === "KeyU" && !this.selectedSplineId) { this.terrainSubMode = "sculpt"; this.brushMode = "smooth"; return; }
+    if (e.code === "KeyI" && !this.selectedSplineId) { this.terrainSubMode = "sculpt"; this.brushMode = "flatten"; return; }
     if (e.code === "KeyX") { this.terrainSubMode = "spline"; this.brushIndicator.visible = false; return; }
 
     if (e.code === "KeyC") {
-        this.terrainSubMode = "spline";
-        this.isDrawingSpline = true;
-        this.tempSplinePoints = [];
-        this.renderSplines();
-        return;
+      this.terrainSubMode = "spline";
+      this.isDrawingSpline = true;
+      this.tempSplinePoints = [];
+      this.renderSplines();
+      return;
     }
 
     if (e.code === "Enter" && this.isDrawingSpline) {
-        this.isDrawingSpline = false;
-        if (this.tempSplinePoints.length >= 2) {
-            const added = this.terrainSplineManager.addSpline({
-                type: "ridge",
-                points: [...this.tempSplinePoints],
-                width: 10,
-                strength: 5,
-                falloff: 2
-            });
-            this.selectedSplineId = added.id;
-            this.terrainSplineManager.flushUpdates();
-            
-            // Undo
-            this._pushUndo(() => {
-                this.terrainSplineManager.removeSpline(added.id);
-                this.terrainSplineManager.flushUpdates();
-                if (this.selectedSplineId === added.id) this.selectedSplineId = null;
-                this.renderSplines();
-            });
-        }
-        this.tempSplinePoints = [];
-        this.renderSplines();
-        return;
+      this.isDrawingSpline = false;
+      if (this.tempSplinePoints.length >= 2) {
+        const added = this.terrainSplineManager.addSpline({
+          type: this.terrainSplineType,
+          points: [...this.tempSplinePoints],
+          width: this.terrainSplineWidth,
+          strength: this.terrainSplineStrength,
+          falloff: 2
+        });
+        this.selectedSplineId = added.id;
+        this.terrainSplineManager.flushUpdates();
+
+        // Undo
+        this._pushUndo(() => {
+          this.terrainSplineManager.removeSpline(added.id);
+          this.terrainSplineManager.flushUpdates();
+          if (this.selectedSplineId === added.id) this.selectedSplineId = null;
+          this.renderSplines();
+        });
+      }
+      this.tempSplinePoints = [];
+      this.renderSplines();
+      return;
     }
 
     if (!this.selectedSplineId) return;
@@ -723,40 +908,65 @@ export class EditorController {
     let changed = false;
     const oldState = JSON.parse(JSON.stringify(spline));
 
-    if (e.code === "KeyR") { spline.type = "ridge"; changed = true; }
-    if (e.code === "KeyV") { spline.type = "valley"; changed = true; }
-    if (e.code === "KeyF") { spline.type = "plateau"; changed = true; }
-    if (e.code === "KeyO") { spline.type = "road"; changed = true; }
+    if (e.code === "KeyR") { this.terrainSplineType = "ridge"; if (spline) spline.type = "ridge"; changed = true; }
+    if (e.code === "KeyV") { this.terrainSplineType = "valley"; if (spline) spline.type = "valley"; changed = true; }
+    if (e.code === "KeyF") { this.terrainSplineType = "plateau"; if (spline) spline.type = "plateau"; changed = true; }
+    if (e.code === "KeyO") { this.terrainSplineType = "road"; if (spline) spline.type = "road"; changed = true; }
+
+    // Width [ ]
+    if (e.code === "BracketLeft") {
+      if (spline) spline.width = Math.max(1, spline.width - 1);
+      else this.terrainSplineWidth = Math.max(1, this.terrainSplineWidth - 1);
+      changed = true;
+    }
+    if (e.code === "BracketRight") {
+      if (spline) spline.width = Math.min(100, spline.width + 1);
+      else this.terrainSplineWidth = Math.min(100, this.terrainSplineWidth + 1);
+      changed = true;
+    }
+
+    // Strength - +
+    if (e.code === "Minus") {
+      if (spline) spline.strength = Math.max(0, spline.strength - 0.5);
+      else this.terrainSplineStrength = Math.max(0, this.terrainSplineStrength - 0.5);
+      changed = true;
+    }
+    if (e.code === "Equal") { // Plus is shift+equal, usually we check Equal
+      if (spline) spline.strength = Math.min(100, spline.strength + 0.5);
+      else this.terrainSplineStrength = Math.min(100, this.terrainSplineStrength + 0.5);
+      changed = true;
+    }
 
     if (e.code === "Delete" || e.code === "Backspace") {
-        this.terrainSplineManager.removeSpline(this.selectedSplineId);
-        
-        this._pushUndo(() => {
-            this.terrainSplineManager.addSpline(oldState);
-            this.terrainSplineManager.flushUpdates();
-            this.selectedSplineId = oldState.id;
-            this.renderSplines();
-        });
-        
-        this.selectedSplineId = null;
-        changed = true;
+      this.terrainSplineManager.removeSpline(this.selectedSplineId);
+
+      this._pushUndo(() => {
+        this.terrainSplineManager.addSpline(oldState);
+        this.terrainSplineManager.flushUpdates();
+        this.selectedSplineId = oldState.id;
+        this.renderSplines();
+      });
+
+      this.selectedSplineId = null;
+      changed = true;
     }
 
     if (changed) {
-        if (this.selectedSplineId) {
-            this.terrainSplineManager.updateSpline(spline.id, spline);
-            this._pushUndo(() => {
-                const s = this.terrainSplineManager.getSplines().find(sx => sx.id === oldState.id);
-                if (s) {
-                    Object.assign(s, oldState);
-                    this.terrainSplineManager.updateSpline(s.id, s);
-                    this.terrainSplineManager.flushUpdates();
-                    this.renderSplines();
-                }
-            });
-        }
-        this.terrainSplineManager.flushUpdates();
-        this.renderSplines();
+      if (this.selectedSplineId) {
+        this.terrainSplineManager.updateSpline(spline.id, spline);
+        this._pushUndo(() => {
+          const s = this.terrainSplineManager.getSplines().find(sx => sx.id === oldState.id);
+          if (s) {
+            Object.assign(s, oldState);
+            this.terrainSplineManager.updateSpline(s.id, s);
+            this.terrainSplineManager.flushUpdates();
+            this.renderSplines();
+          }
+        });
+      }
+      this.terrainSplineManager.flushUpdates();
+      this._updateTerrainUI();
+      this.renderSplines();
     }
   }
 
@@ -770,13 +980,13 @@ export class EditorController {
     let closest = null;
     let minDist = 10; // Threshold
     for (const spline of this.terrainSplineManager.getSplines()) {
-        const curveData = this.terrainSplineManager.curves.get(spline.id);
-        if (!curveData) continue;
-        const dist = this.terrainSplineManager._distanceToPolyline(x, z, curveData.samples);
-        if (dist < minDist) {
-            minDist = dist;
-            closest = spline;
-        }
+      const curveData = this.terrainSplineManager.curves.get(spline.id);
+      if (!curveData) continue;
+      const dist = this.terrainSplineManager._distanceToPolyline(x, z, curveData.samples);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = spline;
+      }
     }
     return closest;
   }
@@ -785,54 +995,56 @@ export class EditorController {
     this.splinePointsGroup.clear();
     this.splineLinesGroup.clear();
 
-    if (this.editorMode !== "terrain") return;
+    if (!this.active || this.editorMode !== "terrain") return;
+
+    this._updateTerrainUI();
 
     const splines = this.terrainSplineManager ? this.terrainSplineManager.getSplines() : [];
-    
+
     // Render existing splines
     for (const spline of splines) {
-        const isSelected = spline.id === this.selectedSplineId;
-        const color = isSelected ? 0xffcc00 : 0xaa55ff;
+      const isSelected = spline.id === this.selectedSplineId;
+      const color = isSelected ? 0xffcc00 : 0xaa55ff;
 
-        // Line
-        const curveData = this.terrainSplineManager.curves.get(spline.id);
-        if (curveData) {
-            const pts = curveData.samples.map(p => new THREE.Vector3(p.x, this.chunkManager.getHeight(p.x, p.z) + 0.5, p.z));
-            const geo = new THREE.BufferGeometry().setFromPoints(pts);
-            const mat = new THREE.LineBasicMaterial({ color, linewidth: 3 });
-            this.splineLinesGroup.add(new THREE.Line(geo, mat));
-        }
+      // Line
+      const curveData = this.terrainSplineManager.curves.get(spline.id);
+      if (curveData) {
+        const pts = curveData.samples.map(p => new THREE.Vector3(p.x, this.chunkManager.getHeight(p.x, p.z) + 0.5, p.z));
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const mat = new THREE.LineBasicMaterial({ color, linewidth: 3 });
+        this.splineLinesGroup.add(new THREE.Line(geo, mat));
+      }
 
-        // Points
-        if (isSelected) {
-            spline.points.forEach((p, idx) => {
-                const y = this.chunkManager.getHeight(p[0], p[1]) + 0.5;
-                const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
-                mesh.position.set(p[0], y, p[1]);
-                mesh.userData = { splineId: spline.id, pointIndex: idx };
-                this.splinePointsGroup.add(mesh);
-            });
-        }
+      // Points
+      if (isSelected) {
+        spline.points.forEach((p, idx) => {
+          const y = this.chunkManager.getHeight(p[0], p[1]) + 0.5;
+          const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+          mesh.position.set(p[0], y, p[1]);
+          mesh.userData = { splineId: spline.id, pointIndex: idx };
+          this.splinePointsGroup.add(mesh);
+        });
+      }
     }
 
     // Render temp drawing spline
     if (this.isDrawingSpline && this.tempSplinePoints.length > 0) {
-        this.tempSplinePoints.forEach(p => {
-            const y = this.chunkManager.getHeight(p[0], p[1]) + 0.5;
-            const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 8), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
-            mesh.position.set(p[0], y, p[1]);
-            this.splinePointsGroup.add(mesh);
-        });
+      this.tempSplinePoints.forEach(p => {
+        const y = this.chunkManager.getHeight(p[0], p[1]) + 0.5;
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 8), new THREE.MeshBasicMaterial({ color: 0x00ff00 }));
+        mesh.position.set(p[0], y, p[1]);
+        this.splinePointsGroup.add(mesh);
+      });
 
-        if (this.tempSplinePoints.length >= 2) {
-            const vecs = this.tempSplinePoints.map(p => new THREE.Vector3(p[0], 0, p[1]));
-            const curve = new THREE.CatmullRomCurve3(vecs);
-            const samples = curve.getSpacedPoints(this.tempSplinePoints.length * 10);
-            const pts = samples.map(p => new THREE.Vector3(p.x, this.chunkManager.getHeight(p.x, p.z) + 0.5, p.z));
-            const geo = new THREE.BufferGeometry().setFromPoints(pts);
-            const mat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-            this.splineLinesGroup.add(new THREE.Line(geo, mat));
-        }
+      if (this.tempSplinePoints.length >= 2) {
+        const vecs = this.tempSplinePoints.map(p => new THREE.Vector3(p[0], 0, p[1]));
+        const curve = new THREE.CatmullRomCurve3(vecs);
+        const samples = curve.getSpacedPoints(this.tempSplinePoints.length * 10);
+        const pts = samples.map(p => new THREE.Vector3(p.x, this.chunkManager.getHeight(p.x, p.z) + 0.5, p.z));
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const mat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+        this.splineLinesGroup.add(new THREE.Line(geo, mat));
+      }
     }
   }
 
@@ -841,77 +1053,77 @@ export class EditorController {
     const s = this.brushStrength;
     const mode = this.brushMode;
     const bounds = {
-        minX: center.x - r,
-        maxX: center.x + r,
-        minZ: center.z - r,
-        maxZ: center.z + r
+      minX: center.x - r,
+      maxX: center.x + r,
+      minZ: center.z - r,
+      maxZ: center.z + r
     };
 
     const affectedChunks = [];
     for (const chunk of this.chunkManager.chunks.values()) {
-        if (this.chunkManager.chunkIntersectsBounds(chunk, bounds)) {
-            affectedChunks.push(chunk);
-        }
+      if (this.chunkManager.chunkIntersectsBounds(chunk, bounds)) {
+        affectedChunks.push(chunk);
+      }
     }
 
     if (affectedChunks.length === 0) return;
-    
+
     // Fixed resolution for the sculpt map (independent of mesh segments)
     const fixedSegments = 128;
 
     for (const chunk of affectedChunks) {
-        const cx = Math.floor(chunk.x / this.chunkSize);
-        const cz = Math.floor(chunk.z / this.chunkSize);
-        const key = `${cx},${cz}`;
-        const posAttr = chunk.mesh.geometry.attributes.position;
-        const layer = this.terrainSplineManager.getOrCreateLayer(key);
+      const cx = Math.floor(chunk.x / this.chunkSize);
+      const cz = Math.floor(chunk.z / this.chunkSize);
+      const key = `${cx},${cz}`;
+      const posAttr = chunk.mesh.geometry.attributes.position;
+      const layer = this.terrainSplineManager.getOrCreateLayer(key);
 
-        for (let i = 0; i < posAttr.count; i++) {
-            const localX = posAttr.getX(i);
-            const localZ = posAttr.getZ(i);
-            const vx = chunk.x + localX;
-            const vz = chunk.z + localZ;
-            const dx = vx - center.x;
-            const dz = vz - center.z;
-            const dist = Math.sqrt(dx * dx + dz * dz);
+      for (let i = 0; i < posAttr.count; i++) {
+        const localX = posAttr.getX(i);
+        const localZ = posAttr.getZ(i);
+        const vx = chunk.x + localX;
+        const vz = chunk.z + localZ;
+        const dx = vx - center.x;
+        const dz = vz - center.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
 
-            if (dist < r) {
-                const t = 1.0 - (dist / r);
-                const falloff = this.terrainSplineManager.smoothFalloff(t);
-                
-                // Map local vertex coordinates to the fixed-res layer grid (0 to fixedSegments)
-                const halfSize = this.chunkSize / 2;
-                const u = THREE.MathUtils.clamp((localX + halfSize) / this.chunkSize, 0, 1);
-                const v = THREE.MathUtils.clamp((localZ + halfSize) / this.chunkSize, 0, 1);
-                const gx = Math.round(u * fixedSegments);
-                const gz = Math.round(v * fixedSegments);
-                const layerIndex = gz * (fixedSegments + 1) + gx;
+        if (dist < r) {
+          const t = 1.0 - (dist / r);
+          const falloff = this.terrainSplineManager.smoothFalloff(t);
 
-                if (mode === "raise") {
-                    layer[layerIndex] += falloff * s;
-                } else if (mode === "lower") {
-                    layer[layerIndex] -= falloff * s;
-                } else if (mode === "flatten") {
-                    const currentY = posAttr.getY(i);
-                    const targetY = this.flattenHeight;
-                    const diff = targetY - currentY;
-                    layer[layerIndex] += diff * falloff * s;
-                } else if (mode === "smooth") {
-                    const step = 0.5;
-                    const h1 = this.chunkManager.getHeight(vx + step, vz);
-                    const h2 = this.chunkManager.getHeight(vx - step, vz);
-                    const h3 = this.chunkManager.getHeight(vx, vz + step);
-                    const h4 = this.chunkManager.getHeight(vx, vz - step);
-                    const avg = (h1 + h2 + h3 + h4) / 4;
-                    const currentY = posAttr.getY(i);
-                    const diff = avg - currentY;
-                    layer[layerIndex] += diff * falloff * s;
-                }
-            }
+          // Map local vertex coordinates to the fixed-res layer grid (0 to fixedSegments)
+          const halfSize = this.chunkSize / 2;
+          const u = THREE.MathUtils.clamp((localX + halfSize) / this.chunkSize, 0, 1);
+          const v = THREE.MathUtils.clamp((localZ + halfSize) / this.chunkSize, 0, 1);
+          const gx = Math.round(u * fixedSegments);
+          const gz = Math.round(v * fixedSegments);
+          const layerIndex = gz * (fixedSegments + 1) + gx;
+
+          if (mode === "raise") {
+            layer[layerIndex] += falloff * s;
+          } else if (mode === "lower") {
+            layer[layerIndex] -= falloff * s;
+          } else if (mode === "flatten") {
+            const currentY = posAttr.getY(i);
+            const targetY = this.flattenHeight;
+            const diff = targetY - currentY;
+            layer[layerIndex] += diff * falloff * s;
+          } else if (mode === "smooth") {
+            const step = 0.5;
+            const h1 = this.chunkManager.getHeight(vx + step, vz);
+            const h2 = this.chunkManager.getHeight(vx - step, vz);
+            const h3 = this.chunkManager.getHeight(vx, vz + step);
+            const h4 = this.chunkManager.getHeight(vx, vz - step);
+            const avg = (h1 + h2 + h3 + h4) / 4;
+            const currentY = posAttr.getY(i);
+            const diff = avg - currentY;
+            layer[layerIndex] += diff * falloff * s;
+          }
         }
-        chunk.regenerateFromSplines();
+      }
+      chunk.regenerateFromSplines();
     }
-    
+
     // Pulse dirty system for collision refresh
     this.terrainSplineManager.markDirty(bounds);
     this.terrainSplineManager.flushUpdates();
