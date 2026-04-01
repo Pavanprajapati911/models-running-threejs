@@ -18,6 +18,7 @@ export class EditorController {
     this.camera = camera;
     this.raycaster = raycaster;
     this.chunkManager = chunkManager;
+    this.chunkSize = chunkManager.chunkSize;
     this.placedObjectManager = placedObjectManager;
     this.terrainSplineManager = terrainSplineManager;
 
@@ -46,6 +47,23 @@ export class EditorController {
     this.scene.add(this.splinePointsGroup);
     this.splineLinesGroup = new THREE.Group();
     this.scene.add(this.splineLinesGroup);
+
+    this.terrainSubMode = "spline"; // "spline" | "sculpt"
+    this.brushMode = "raise";       // "raise", "lower", "smooth", "flatten"
+    this.brushRadius = 5;
+    this.brushStrength = 0.5;
+    this.isSculpting = false;
+    this.flattenHeight = 0;
+    this.sculptSnapshot = null;
+
+    this.brushIndicator = new THREE.Mesh(
+      new THREE.RingGeometry(0.9, 1.0, 32),
+      new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide, depthTest: false })
+    );
+    this.brushIndicator.rotation.x = -Math.PI / 2;
+    this.brushIndicator.visible = false;
+    this.brushIndicator.scale.set(this.brushRadius, this.brushRadius, 1);
+    this.scene.add(this.brushIndicator);
 
     // ── Undo stack ───────────────────────────────────────────────────────────
     /** @type {Array<() => void>} */
@@ -136,6 +154,8 @@ export class EditorController {
       this.isDrawingSpline = false;
       this.tempSplinePoints = [];
       this.selectedSplineId = null;
+      this.terrainSubMode = "spline"; // default reset
+      this.brushIndicator.visible = false;
       this.renderSplines();
     }
     this.editorMode = mode;
@@ -177,11 +197,30 @@ export class EditorController {
     window.addEventListener("mousemove", (e) => {
       if (!this.active) return;
       this.updateMouse(e);
+      
+      let hit = null;
+      if (this.editorMode === "terrain") {
+        hit = this._raycastTerrain();
+        if (hit && this.terrainSubMode === "sculpt") {
+          this.brushIndicator.position.copy(hit);
+          this.brushIndicator.visible = true;
+          this.brushIndicator.material.color.setHex(
+              this.brushMode === "raise" ? 0x00ff00 : 
+              this.brushMode === "lower" ? 0xff0000 : 
+              this.brushMode === "smooth" ? 0x0000ff : 0xffff00
+          );
+        } else {
+          this.brushIndicator.visible = false;
+        }
+      } else {
+        this.brushIndicator.visible = false;
+      }
+
       if (this.editorMode === "object") {
         if (!this.selectedObject) this.raycast();
         else this.previewMesh.visible = false;
       } else if (this.editorMode === "terrain") {
-        this._onTerrainMouseMove(e);
+        this._onTerrainMouseMove(e, hit);
       }
     });
 
@@ -190,22 +229,52 @@ export class EditorController {
       if (!this.active) return;
       if (this.editorMode === "terrain") {
         this.draggedPointIndex = -1;
+        
+        if (this.isSculpting) {
+          this.isSculpting = false;
+          // Commit Undo closure
+          if (this.sculptSnapshot) {
+              const snapshotBefore = this.sculptSnapshot;
+              this._pushUndo(() => {
+                  this.terrainSplineManager.heightOffsets.clear();
+                  for (const [k, arr] of snapshotBefore.entries()) {
+                      this.terrainSplineManager.heightOffsets.set(k, new Float32Array(arr));
+                  }
+                  this.chunkManager.regenerateFromSplines();
+              });
+              this.sculptSnapshot = null;
+          }
+        }
       }
     });
 
     // ── WHEEL ───────────────────────────────────────────────────────────────
     window.addEventListener("wheel", (e) => {
-      if (!this.active || this.editorMode !== "object") return;
-      if (e.shiftKey) {
-        const amt = (e.deltaY > 0 ? -1 : 1) * 0.1;
-        this.scale.addScalar(amt);
-        this.scale.x = Math.max(0.1, this.scale.x);
-        this.scale.y = Math.max(0.1, this.scale.y);
-        this.scale.z = Math.max(0.1, this.scale.z);
-        if (this.previewMesh) this.previewMesh.scale.copy(this.scale);
-      } else {
-        this.rotation.y += (e.deltaY > 0 ? 1 : -1) * 0.15;
-        if (this.previewMesh) this.previewMesh.rotation.copy(this.rotation);
+      if (!this.active) return;
+      
+      if (this.editorMode === "object") {
+        if (e.shiftKey) {
+          const amt = (e.deltaY > 0 ? -1 : 1) * 0.1;
+          this.scale.addScalar(amt);
+          this.scale.x = Math.max(0.1, this.scale.x);
+          this.scale.y = Math.max(0.1, this.scale.y);
+          this.scale.z = Math.max(0.1, this.scale.z);
+          if (this.previewMesh) this.previewMesh.scale.copy(this.scale);
+        } else {
+          this.rotation.y += (e.deltaY > 0 ? 1 : -1) * 0.15;
+          if (this.previewMesh) this.previewMesh.rotation.copy(this.rotation);
+        }
+      } else if (this.editorMode === "terrain" && this.terrainSubMode === "sculpt") {
+        if (e.shiftKey) {
+          this.brushStrength -= Math.sign(e.deltaY) * 0.05;
+          this.brushStrength = Math.max(0.05, Math.min(2.0, this.brushStrength));
+          console.log("Brush Strength: " + this.brushStrength.toFixed(2));
+        } else {
+          this.brushRadius -= Math.sign(e.deltaY) * 1.0;
+          this.brushRadius = Math.max(1.0, Math.min(50.0, this.brushRadius));
+          this.brushIndicator.scale.set(this.brushRadius, this.brushRadius, 1);
+          console.log("Brush Radius: " + this.brushRadius.toFixed(1));
+        }
       }
     });
 
@@ -545,6 +614,20 @@ export class EditorController {
     const hit = this._raycastTerrain();
     if (!hit) return;
 
+    if (this.terrainSubMode === "sculpt") {
+        this.isSculpting = true;
+        this.flattenHeight = hit.y;
+        
+        // Take snapshot for Undo
+        this.sculptSnapshot = new Map();
+        for (const [k, v] of this.terrainSplineManager.heightOffsets.entries()) {
+            this.sculptSnapshot.set(k, new Float32Array(v));
+        }
+
+        this._sculptTerrain(hit);
+        return;
+    }
+
     if (this.isDrawingSpline) {
         this.tempSplinePoints.push([hit.x, hit.z]);
         this.renderSplines();
@@ -571,15 +654,20 @@ export class EditorController {
     this.renderSplines();
   }
 
-  _onTerrainMouseMove(e) {
+  _onTerrainMouseMove(e, hit) {
+    if (this.isSculpting && hit) {
+        this._sculptTerrain(hit);
+        return;
+    }
+
     if (this.draggedPointIndex !== -1 && this.selectedSplineId) {
-        const hit = this._raycastTerrain();
-        if (hit) {
+        const moveHit = hit || this._raycastTerrain();
+        if (moveHit) {
             const spline = this.terrainSplineManager.getSplines().find(s => s.id === this.selectedSplineId);
             if (spline && spline.points[this.draggedPointIndex]) {
-                spline.points[this.draggedPointIndex] = [hit.x, hit.z];
+                spline.points[this.draggedPointIndex] = [moveHit.x, moveHit.z];
                 this.terrainSplineManager.updateSpline(spline.id, spline);
-                this.chunkManager.regenerateFromSplines();
+                this.terrainSplineManager.flushUpdates();
                 this.renderSplines();
             }
         }
@@ -587,7 +675,14 @@ export class EditorController {
   }
 
   _onTerrainKeyDown(e) {
+    if (e.code === "KeyQ") { this.terrainSubMode = "sculpt"; this.brushMode = "raise"; return; }
+    if (e.code === "KeyE") { this.terrainSubMode = "sculpt"; this.brushMode = "lower"; return; }
+    if (e.code === "KeyR" && !this.selectedSplineId) { this.terrainSubMode = "sculpt"; this.brushMode = "smooth"; return; }
+    if (e.code === "KeyF" && !this.selectedSplineId) { this.terrainSubMode = "sculpt"; this.brushMode = "flatten"; return; }
+    if (e.code === "KeyX") { this.terrainSubMode = "spline"; this.brushIndicator.visible = false; return; }
+
     if (e.code === "KeyC") {
+        this.terrainSubMode = "spline";
         this.isDrawingSpline = true;
         this.tempSplinePoints = [];
         this.renderSplines();
@@ -605,12 +700,12 @@ export class EditorController {
                 falloff: 2
             });
             this.selectedSplineId = added.id;
-            this.chunkManager.regenerateFromSplines();
+            this.terrainSplineManager.flushUpdates();
             
             // Undo
             this._pushUndo(() => {
                 this.terrainSplineManager.removeSpline(added.id);
-                this.chunkManager.regenerateFromSplines();
+                this.terrainSplineManager.flushUpdates();
                 if (this.selectedSplineId === added.id) this.selectedSplineId = null;
                 this.renderSplines();
             });
@@ -638,7 +733,7 @@ export class EditorController {
         
         this._pushUndo(() => {
             this.terrainSplineManager.addSpline(oldState);
-            this.chunkManager.regenerateFromSplines();
+            this.terrainSplineManager.flushUpdates();
             this.selectedSplineId = oldState.id;
             this.renderSplines();
         });
@@ -655,12 +750,12 @@ export class EditorController {
                 if (s) {
                     Object.assign(s, oldState);
                     this.terrainSplineManager.updateSpline(s.id, s);
-                    this.chunkManager.regenerateFromSplines();
+                    this.terrainSplineManager.flushUpdates();
                     this.renderSplines();
                 }
             });
         }
-        this.chunkManager.regenerateFromSplines();
+        this.terrainSplineManager.flushUpdates();
         this.renderSplines();
     }
   }
@@ -739,5 +834,86 @@ export class EditorController {
             this.splineLinesGroup.add(new THREE.Line(geo, mat));
         }
     }
+  }
+
+  _sculptTerrain(center) {
+    const r = this.brushRadius;
+    const s = this.brushStrength;
+    const mode = this.brushMode;
+    const bounds = {
+        minX: center.x - r,
+        maxX: center.x + r,
+        minZ: center.z - r,
+        maxZ: center.z + r
+    };
+
+    const affectedChunks = [];
+    for (const chunk of this.chunkManager.chunks.values()) {
+        if (this.chunkManager.chunkIntersectsBounds(chunk, bounds)) {
+            affectedChunks.push(chunk);
+        }
+    }
+
+    if (affectedChunks.length === 0) return;
+    
+    // Fixed resolution for the sculpt map (independent of mesh segments)
+    const fixedSegments = 128;
+
+    for (const chunk of affectedChunks) {
+        const cx = Math.floor(chunk.x / this.chunkSize);
+        const cz = Math.floor(chunk.z / this.chunkSize);
+        const key = `${cx},${cz}`;
+        const posAttr = chunk.mesh.geometry.attributes.position;
+        const layer = this.terrainSplineManager.getOrCreateLayer(key);
+
+        for (let i = 0; i < posAttr.count; i++) {
+            const localX = posAttr.getX(i);
+            const localZ = posAttr.getZ(i);
+            const vx = chunk.x + localX;
+            const vz = chunk.z + localZ;
+            const dx = vx - center.x;
+            const dz = vz - center.z;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+
+            if (dist < r) {
+                const t = 1.0 - (dist / r);
+                const falloff = this.terrainSplineManager.smoothFalloff(t);
+                
+                // Map local vertex coordinates to the fixed-res layer grid (0 to fixedSegments)
+                const halfSize = this.chunkSize / 2;
+                const u = THREE.MathUtils.clamp((localX + halfSize) / this.chunkSize, 0, 1);
+                const v = THREE.MathUtils.clamp((localZ + halfSize) / this.chunkSize, 0, 1);
+                const gx = Math.round(u * fixedSegments);
+                const gz = Math.round(v * fixedSegments);
+                const layerIndex = gz * (fixedSegments + 1) + gx;
+
+                if (mode === "raise") {
+                    layer[layerIndex] += falloff * s;
+                } else if (mode === "lower") {
+                    layer[layerIndex] -= falloff * s;
+                } else if (mode === "flatten") {
+                    const currentY = posAttr.getY(i);
+                    const targetY = this.flattenHeight;
+                    const diff = targetY - currentY;
+                    layer[layerIndex] += diff * falloff * s;
+                } else if (mode === "smooth") {
+                    const step = 0.5;
+                    const h1 = this.chunkManager.getHeight(vx + step, vz);
+                    const h2 = this.chunkManager.getHeight(vx - step, vz);
+                    const h3 = this.chunkManager.getHeight(vx, vz + step);
+                    const h4 = this.chunkManager.getHeight(vx, vz - step);
+                    const avg = (h1 + h2 + h3 + h4) / 4;
+                    const currentY = posAttr.getY(i);
+                    const diff = avg - currentY;
+                    layer[layerIndex] += diff * falloff * s;
+                }
+            }
+        }
+        chunk.regenerateFromSplines();
+    }
+    
+    // Pulse dirty system for collision refresh
+    this.terrainSplineManager.markDirty(bounds);
+    this.terrainSplineManager.flushUpdates();
   }
 }

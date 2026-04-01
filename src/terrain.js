@@ -44,15 +44,14 @@ export class TerrainChunk {
 
   generateHeightCPU(geometry) {
     const pos = geometry.attributes.position;
+
     for (let i = 0; i < pos.count; i++) {
       const localX = pos.getX(i);
       const localZ = pos.getZ(i);
       const worldX = this.x + localX;
       const worldZ = this.z + localZ;
 
-      const baseY = this.manager.calculateHeight(worldX, worldZ);
-      const finalY = this.manager.terrainSplineManager ? this.manager.terrainSplineManager.evaluateHeight(worldX, worldZ, baseY) : baseY;
-      pos.setY(i, finalY);
+      pos.setY(i, this.manager.getHeight(worldX, worldZ));
     }
     geometry.computeVertexNormals();
     pos.needsUpdate = true;
@@ -372,6 +371,27 @@ export class ChunkManager {
     }
   }
 
+  updateChunksInBounds(bounds) {
+    for (const chunk of this.chunks.values()) {
+      if (this.chunkIntersectsBounds(chunk, bounds)) {
+        chunk.regenerateFromSplines();
+      }
+    }
+  }
+
+  chunkIntersectsBounds(chunk, bounds) {
+    const halfSize = this.chunkSize / 2;
+    const minX = chunk.x - halfSize;
+    const maxX = chunk.x + halfSize;
+    const minZ = chunk.z - halfSize;
+    const maxZ = chunk.z + halfSize;
+
+    if (maxX < bounds.minX || minX > bounds.maxX || maxZ < bounds.minZ || minZ > bounds.maxZ) {
+        return false;
+    }
+    return true;
+  }
+
   /** Returns the raw noise height (no splines) at world (x, z). */
   calculateHeight(x, z) {
     const p = this.envParams.terrain;
@@ -390,8 +410,10 @@ export class ChunkManager {
    * @param {number} z
    */
   getHeight(x, z) {
-    const baseY = this.calculateHeight(x, z);
-    return this.terrainSplineManager ? this.terrainSplineManager.evaluateHeight(x, z, baseY) : baseY;
+    if (this.terrainSplineManager) {
+        return this.terrainSplineManager.evaluateHeight(x, z);
+    }
+    return this.calculateHeight(x, z);
   }
 
   update(playerPosition) {

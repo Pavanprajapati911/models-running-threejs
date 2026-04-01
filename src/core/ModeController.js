@@ -14,7 +14,13 @@ export class ModeController {
     console.log("🛠️ Editor Mode ON");
 
     // Disable gameplay
-    if (this.character) this.character.enabled = false;
+    if (this.character) {
+      if (this.character.gameCharacters) {
+        this.character.gameCharacters.forEach(c => c.setEnabled ? c.setEnabled(false) : (c.enabled = false));
+      } else {
+        this.character.setEnabled ? this.character.setEnabled(false) : (this.character.enabled = false);
+      }
+    }
 
     // Enable free camera
     this.envParams.spectator.active = true;
@@ -37,7 +43,13 @@ export class ModeController {
     console.log("🎮 Game Mode ON");
 
     // Enable gameplay
-    if (this.character) this.character.enabled = true;
+    if (this.character) {
+      if (this.character.gameCharacters) {
+        this.character.gameCharacters.forEach(c => c.setEnabled ? c.setEnabled(true) : (c.enabled = true));
+      } else {
+        this.character.setEnabled ? this.character.setEnabled(true) : (this.character.enabled = true);
+      }
+    }
 
     // Disable free camera
     this.envParams.spectator.active = false;

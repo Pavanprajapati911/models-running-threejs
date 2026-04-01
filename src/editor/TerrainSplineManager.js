@@ -6,25 +6,139 @@ export class TerrainSplineManager {
     this.scene = scene;
     this.splines = [];
     this.curves = new Map(); // id -> { curve, samples }
+    this.dirtyBounds = null;
+    this.chunkManager = null;
+    this.heightOffsets = new Map(); // chunkKey -> Float32Array
+  }
+
+  getHeightOffset(chunkKey, vertexIndex) {
+    const layer = this.heightOffsets.get(chunkKey);
+    return layer ? layer[vertexIndex] : 0;
+  }
+
+  setHeightOffset(chunkKey, vertexIndex, value) {
+    const layer = this.heightOffsets.get(chunkKey);
+    if (layer) layer[vertexIndex] = value;
+  }
+
+  getOrCreateLayer(chunkKey) {
+    const fixedSegments = 128;
+    const vertexCount = (fixedSegments + 1) * (fixedSegments + 1);
+    if (!this.heightOffsets.has(chunkKey)) {
+        this.heightOffsets.set(chunkKey, new Float32Array(vertexCount));
+    }
+    return this.heightOffsets.get(chunkKey);
+  }
+
+  getManualOffset(x, z) {
+    if (!this.chunkManager) return 0;
+    const chunkSize = this.chunkManager.chunkSize;
+    const cx = Math.floor(x / chunkSize);
+    const cz = Math.floor(z / chunkSize);
+    const key = `${cx},${cz}`;
+    const layer = this.heightOffsets.get(key);
+    if (!layer) return 0;
+
+    // Approximate: find nearest vertex index in the grid
+    // Chunks are generated with 'segments'
+    // This is an approximation since we don't know the exact segment count of the active chunk here easily
+    // but we can guess from the typical dist or use a default.
+    // However, the best way is to ask the chunk directly if it exists.
+    const chunk = this.chunkManager.chunks.get(key);
+    if (!chunk) return 0;
+
+    const fixedSegments = 128;
+    const halfSize = chunkSize / 2;
+    const localX = x - chunk.x + halfSize;
+    const localZ = z - chunk.z + halfSize;
+    
+    const u = THREE.MathUtils.clamp(localX / chunkSize, 0, 1);
+    const v = THREE.MathUtils.clamp(localZ / chunkSize, 0, 1);
+    
+    const gridX = Math.round(u * fixedSegments);
+    const gridZ = Math.round(v * fixedSegments);
+    const index = gridZ * (fixedSegments + 1) + gridX;
+    
+    return layer[index] || 0;
+  }
+
+  setChunkManager(chunkManager) {
+    this.chunkManager = chunkManager;
+  }
+
+  markDirty(bounds) {
+    if (!bounds) return;
+    if (!this.dirtyBounds) {
+      this.dirtyBounds = { minX: bounds.minX, maxX: bounds.maxX, minZ: bounds.minZ, maxZ: bounds.maxZ };
+    } else {
+      this.dirtyBounds.minX = Math.min(this.dirtyBounds.minX, bounds.minX);
+      this.dirtyBounds.maxX = Math.max(this.dirtyBounds.maxX, bounds.maxX);
+      this.dirtyBounds.minZ = Math.min(this.dirtyBounds.minZ, bounds.minZ);
+      this.dirtyBounds.maxZ = Math.max(this.dirtyBounds.maxZ, bounds.maxZ);
+    }
+  }
+
+  flushUpdates() {
+    if (!this.dirtyBounds || !this.chunkManager) return;
+    this.chunkManager.updateChunksInBounds(this.dirtyBounds);
+    this.dirtyBounds = null;
+  }
+
+  computeSplineBounds(spline) {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    if (spline.points && spline.points.length > 0) {
+      for (const p of spline.points) {
+        if (p[0] < minX) minX = p[0];
+        if (p[0] > maxX) maxX = p[0];
+        if (p[1] < minZ) minZ = p[1];
+        if (p[1] > maxZ) maxZ = p[1];
+      }
+    } else {
+      return { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+    }
+    const width = spline.width || 0;
+    minX -= width;
+    maxX += width;
+    minZ -= width;
+    maxZ += width;
+    return { minX, maxX, minZ, maxZ };
+  }
+
+  baseHeight(x, z) {
+    return Math.sin(x * 0.05) * 0.5 + Math.cos(z * 0.05) * 0.5;
+  }
+
+  smoothFalloff(t) {
+    return t * t * (3.0 - 2.0 * t);
   }
 
   addSpline(spline) {
     if (!spline.id) spline.id = THREE.MathUtils.generateUUID();
+    spline.bounds = this.computeSplineBounds(spline);
     this.splines.push(spline);
     this._rebuildCurve(spline);
+    this.markDirty(spline.bounds);
     return spline;
   }
 
   removeSpline(id) {
-    this.splines = this.splines.filter(s => s.id !== id);
-    this.curves.delete(id);
+    const idx = this.splines.findIndex(s => s.id === id);
+    if (idx !== -1) {
+      const s = this.splines[idx];
+      this.markDirty(s.bounds);
+      this.splines.splice(idx, 1);
+      this.curves.delete(id);
+    }
   }
 
   updateSpline(id, data) {
     const s = this.splines.find(s => s.id === id);
     if (s) {
+      this.markDirty(s.bounds);
       Object.assign(s, data);
+      s.bounds = this.computeSplineBounds(s);
       this._rebuildCurve(s);
+      this.markDirty(s.bounds);
     }
   }
 
@@ -75,8 +189,8 @@ export class TerrainSplineManager {
     return Math.sqrt(minDistSq);
   }
 
-  evaluateHeight(x, z, baseHeight) {
-    let h = baseHeight;
+  evaluateHeight(x, z) {
+    let height = this.baseHeight(x, z);
     
     for (const spline of this.splines) {
         const curveData = this.curves.get(spline.id);
@@ -85,34 +199,56 @@ export class TerrainSplineManager {
         const dist = this._distanceToPolyline(x, z, curveData.samples);
         
         if (dist < spline.width) {
-            const t = 1 - (dist / spline.width);
-            const influence = Math.pow(t, spline.falloff);
+            let t = 1 - (dist / spline.width);
+            const influence = this.smoothFalloff(t);
             
             if (spline.type === 'ridge') {
-                h += influence * spline.strength;
+                height += influence * spline.strength;
             } else if (spline.type === 'valley') {
-                h -= influence * spline.strength;
+                height -= influence * spline.strength;
             } else if (spline.type === 'plateau') {
-                h = THREE.MathUtils.lerp(h, spline.strength, influence);
+                height = THREE.MathUtils.lerp(height, spline.strength, influence);
             } else if (spline.type === 'road') {
-                h = THREE.MathUtils.lerp(h, 0, influence);
+                height = THREE.MathUtils.lerp(height, 0, influence);
             }
         }
     }
     
-    return h;
+    return height + this.getManualOffset(x, z);
   }
 
   exportJSON() {
-    return this.splines;
+    const offsetsPlain = {};
+    for (const [k, v] of this.heightOffsets.entries()) {
+        let hasChanges = false;
+        for (let i = 0; i < v.length; i++) {
+            if (v[i] !== 0) { hasChanges = true; break; }
+        }
+        if (hasChanges) offsetsPlain[k] = Array.from(v);
+    }
+    return {
+        splines: this.splines,
+        heightOffsets: offsetsPlain
+    };
   }
 
   loadJSON(data) {
     this.splines = [];
     this.curves.clear();
+    this.heightOffsets.clear();
     
     if (Array.isArray(data)) {
         data.forEach(s => this.addSpline(s));
+    } else if (data && typeof data === 'object') {
+        if (Array.isArray(data.splines)) {
+            data.splines.forEach(s => this.addSpline(s));
+        }
+        if (data.heightOffsets) {
+            for (const key in data.heightOffsets) {
+                this.heightOffsets.set(key, new Float32Array(data.heightOffsets[key]));
+            }
+        }
     }
+    this.dirtyBounds = null; // Clear dirty bounds after whole map load
   }
 }

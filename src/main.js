@@ -252,6 +252,7 @@ const chunkManager = new ChunkManager(
   placedObjectManager,
   terrainSplineManager
 );
+terrainSplineManager.setChunkManager(chunkManager);
 placedObjectManager.chunkManager = chunkManager; // Fix circular ref
 placedObjectManager.terrainSplineManager = terrainSplineManager;
 const terrain = chunkManager; // alias for compatibility if needed
@@ -292,6 +293,10 @@ gui.add({ regenerate: () => chunkManager.refreshChunks() }, "regenerate").name("
 
 const spectatorFolder = gui.addFolder("🎥 Spectator Mode");
 spectatorFolder.add(envParams.spectator, "active").name("Active").listen().onChange((v) => {
+  gameCharacters.forEach(c => {
+      if (c.setEnabled) c.setEnabled(!v);
+      else c.enabled = !v;
+  });
   if (v) {
     // When activating, sync camera pitch/yaw to current state
   }
@@ -310,6 +315,10 @@ window.addEventListener("keydown", (e) => {
 
   if (e.ctrlKey && e.code === "KeyM") {
     envParams.spectator.active = !envParams.spectator.active;
+    gameCharacters.forEach(c => {
+        if (c.setEnabled) c.setEnabled(!envParams.spectator.active);
+        else c.enabled = !envParams.spectator.active;
+    });
     e.preventDefault();
   }
 });

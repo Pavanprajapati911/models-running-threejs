@@ -53,10 +53,12 @@ export class Character {
     this.enabled = true;
     if (this.isLocal) this.input = new Input();
 
-
     this.model = null;
     this.mixer = null;
     this.anim = null;
+
+    // ======================
+    // PHYSICS SETUP
 
     // ======================
     // PHYSICS SETUP
@@ -110,6 +112,19 @@ export class Character {
         }
       });
     });
+  }
+
+  setEnabled(state) {
+    this.enabled = state;
+    if (this.body) {
+      if (!state) {
+        this.body.setGravityScale(0, true);
+        this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      } else {
+        this.body.setGravityScale(1, true);
+        this.body.wakeUp();
+      }
+    }
   }
 
   // =====================
