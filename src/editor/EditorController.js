@@ -42,8 +42,8 @@ export class EditorController {
     this.currentStroke = []; // For undoing a whole brush selection
     this.brushParams = {
       radius: 5,
-      density: 0.5,
-      falloff: 2.0
+      density: 15,
+      falloff: 1.0
     };
 
     // ── Terrain mode state ──────────────────────────────────────────────────
@@ -90,16 +90,28 @@ export class EditorController {
   _createGrassPreview() {
     if (this.grassPreviewMesh) this.scene.remove(this.grassPreviewMesh);
 
-    const geo = new THREE.CircleGeometry(1, 64);
+    // Use a Sphere for 3D look like other points
+    const geo = new THREE.SphereGeometry(1, 16, 16);
     const mat = new THREE.MeshBasicMaterial({
-      color: 0x44ff44,
+      color: 0xffff00,
       transparent: true,
-      opacity: 0.25,
-      depthWrite: false
+      opacity: 0.15,
+      depthWrite: false,
+      wireframe: true // Add wireframe for that "3D editor" feel
     });
 
-    this.grassPreviewMesh = new THREE.Mesh(geo, mat);
-    // Removed static rotation, we'll align to normal in real-time
+    const mesh = new THREE.Mesh(geo, mat);
+    
+    // Add a solid core
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0xffff00,
+      transparent: true,
+      opacity: 0.1,
+      depthWrite: false
+    });
+    mesh.add(new THREE.Mesh(geo, coreMat));
+
+    this.grassPreviewMesh = mesh;
     this.scene.add(this.grassPreviewMesh);
   }
   // ══════════════════════════════════════════════════════════════════════════
@@ -165,9 +177,17 @@ export class EditorController {
     this.selection = { category, modelIndex };
     const colors = {
       grass: 0x44ff44, foliage: 0x00cc88, bushes: 0x228833,
-      palms: 0xffcc00, jungleTrees: 0x00aa44, deadTrees: 0x996633, rocks: 0x888888
+      palms: 0xffcc00, jungleTrees: 0x00aa44, deadTrees: 0x996633, rocks: 0x888888,
+      grass_static: 0x44ff44, grass_animated: 0x44ff44
     };
     if (this.previewMesh) this.previewMesh.material.color.set(colors[category] ?? 0x00ff88);
+
+    // Auto-open brush folder if grass
+    if (category === "grass_static" || category === "grass_animated") {
+      if (this.brushFolder) this.brushFolder.open();
+    } else {
+      if (this.brushFolder) this.brushFolder.close();
+    }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -342,9 +362,10 @@ export class EditorController {
     const folder = this.gui.addFolder("⌨️ Editor Controls").close();
 
     const brushFolder = this.gui.addFolder("🌿 Grass Brush").close();
-    brushFolder.add(this.brushParams, "radius", 1, 30).name("Radius");
-    brushFolder.add(this.brushParams, "density", 0.1, 1, 0.01).name("Density");
-    brushFolder.add(this.brushParams, "falloff", 0.5, 5).name("Falloff");
+    brushFolder.add(this.brushParams, "radius", 1, 50).name("Radius");
+    brushFolder.add(this.brushParams, "density", 1, 100, 1).name("Density");
+    brushFolder.add(this.brushParams, "falloff", 0.1, 5).name("Falloff");
+    this.brushFolder = brushFolder; // Store ref to open/close
 
     const controls = {
       "Switch Mode": "1 (Terrain) | 2 (Object)",
@@ -419,24 +440,29 @@ export class EditorController {
             this.previewMesh.visible = !this.isSelectingGrass; // Hide sphere during grass selection
 
             // --- GRASS PREVIEW CIRCLE ---
-            if (this.isSelectingGrass && (this.selection.category === "grass_static" || this.selection.category === "grass_animated")) {
+            const isGrass = this.selection.category === "grass_static" || this.selection.category === "grass_animated";
+            
+            if (isGrass) {
               if (!this.grassPreviewMesh) this._createGrassPreview();
+              
+              const radius = this.brushParams.radius;
               this.grassPreviewMesh.position.copy(terrainHit);
-              const normal = this.getTerrainNormal(terrainHit.x, terrainHit.z);
-              // Shift preview mesh slightly along the normal to prevent clipping through the terrain
-              this.grassPreviewMesh.position.add(normal.clone().multiplyScalar(0.1));
-              this.grassPreviewMesh.scale.setScalar(this.brushParams.radius);
+              // Shift up so it sits "on" the ground rather than being half-buried
+              this.grassPreviewMesh.position.y += radius * 0.1; 
+              this.grassPreviewMesh.scale.setScalar(radius);
 
-              // Align with the slope
-              const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-              this.grassPreviewMesh.quaternion.copy(quat);
+              // 3D Spheres look best when upright
+              this.grassPreviewMesh.rotation.set(0, 0, 0); 
               
               this.grassPreviewMesh.visible = true;
+              this.previewMesh.visible = false; // Hide sphere when grass brush is active
 
-              // Record points for selection
-              this.grassSelectionPoints.push(terrainHit.clone());
-            } else if (this.grassPreviewMesh) {
-              this.grassPreviewMesh.visible = false;
+              if (this.isSelectingGrass) {
+                this.grassSelectionPoints.push(terrainHit.clone());
+              }
+            } else {
+              if (this.grassPreviewMesh) this.grassPreviewMesh.visible = false;
+              this.previewMesh.visible = true;
             }
           } else {
             this.previewMesh.visible = false;
@@ -1123,12 +1149,20 @@ export class EditorController {
 
     const variation = this.getVariationName();
     const vParams = GRASS_VARIATIONS[variation] || {};
+    
+    // Merge brush parameters
+    const strokeParams = {
+      ...vParams,
+      radius: this.brushParams.radius,
+      density: this.brushParams.density,
+      falloff: this.brushParams.falloff
+    };
 
     // NEW: Batch process the entire selection as one stroke
     const grassObjs = this.placedObjectManager.addGrassSelection(
       variation, 
       this.grassSelectionPoints, 
-      vParams
+      strokeParams
     );
 
     if (grassObjs.length > 0) {

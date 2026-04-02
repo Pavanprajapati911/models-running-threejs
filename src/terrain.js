@@ -5,6 +5,7 @@ import vertexShader from "./shaders/terrain_vert.glsl?raw";
 import fragmentShader from "./shaders/terrain_frag.glsl?raw";
 import { VegetationManager } from "./environment/vegetation-manager.js";
 import { GrassManager, GRASS_VARIATIONS } from "./environment/GrassManager.js";
+import { GrassLODManager } from "./environment/GrassLODManager.js";
 import alea from "alea";
 import { createNoise2D } from "simplex-noise";
 
@@ -22,6 +23,7 @@ export class TerrainChunk {
     this.vegetation = [];
     this.placedObjects = [];
     this.placedGrass = [];
+    this.grassLODs = null;
 
     this.init();
   }
@@ -32,11 +34,45 @@ export class TerrainChunk {
     this.mesh = new THREE.Mesh(geometry, this.manager.sharedMaterial);
     this.mesh.position.set(this.x, 0, this.z);
 
-    // Shadows removed
-
     this.manager.scene.add(this.mesh);
 
     this.generateHeightCPU(geometry);
+
+    // --- DEBUG VISUALS ---
+    /*
+    this.debugGroup = new THREE.Group();
+    this.debugGroup.position.set(this.x, 0, this.z);
+    
+    // Center circle
+    const circleGeo = new THREE.CircleGeometry(2, 16);
+    circleGeo.rotateX(-Math.PI / 2);
+    const circleMat = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
+    const circleMesh = new THREE.Mesh(circleGeo, circleMat);
+    const centerH = this.manager.getHeight(this.x, this.z);
+    circleMesh.position.y = centerH + 0.5;
+    this.debugGroup.add(circleMesh);
+
+    // Border
+    const s = this.manager.chunkSize;
+    const borderGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-s/2, 0, -s/2),
+        new THREE.Vector3(s/2, 0, -s/2),
+        new THREE.Vector3(s/2, 0, s/2),
+        new THREE.Vector3(-s/2, 0, s/2),
+        new THREE.Vector3(-s/2, 0, -s/2)
+    ]);
+    const pts = borderGeo.attributes.position;
+    for(let i=0; i<pts.count; i++) {
+        const h = this.manager.getHeight(this.x + pts.getX(i), this.z + pts.getZ(i));
+        pts.setY(i, h + 0.5);
+    }
+    const borderMat = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+    const borderLine = new THREE.Line(borderGeo, borderMat);
+    this.debugGroup.add(borderLine);
+    
+    this.manager.scene.add(this.debugGroup);
+    */
+    // ---------------------
 
     this.tryCreatePhysics();
     this.spawnVegetation();
@@ -202,38 +238,17 @@ export class TerrainChunk {
   }
 
   spawnGrassPatch(data) {
-    if (!this.manager.grassManager) return;
+    if (!this.manager.grassLODManager) return;
+    
+    // Create lightweight proxy for selection
+    const proxyMesh = this.manager.grassLODManager.createProxy(data);
+    
+    // Add to chunk data
+    this.placedGrass.push({ data: data, mesh: proxyMesh });
+    this.manager.scene.add(proxyMesh);
 
-    // Get params from variation if not already set
-    const varParams = GRASS_VARIATIONS[data.variation] || GRASS_VARIATIONS['light_wind'];
-    const mergedParams = { ...varParams, ...data.params };
-
-    let mesh;
-    if (data.type === "grass_selection" && data.points) {
-      // NEW: Selection-based batch grass
-      mesh = this.manager.grassManager.createGrassFromPoints(
-        data.points, 
-        mergedParams, 
-        (x, z) => ({
-          height: this.manager.getHeight(x, z),
-          normal: this.manager.getTerrainNormal(x, z)
-        })
-      );
-    } else {
-      // LEGACY: Single circular patch
-      mesh = this.manager.grassManager.createGrassPatch(mergedParams);
-      mesh.position.set(data.position[0], data.position[1], data.position[2]);
-      mesh.rotation.set(data.rotation[0], data.rotation[1], data.rotation[2]);
-      mesh.scale.set(data.scale[0], data.scale[1], data.scale[2]);
-    }
-
-    if (!mesh) return;
-
-    mesh.userData.isGrassPatch = true;
-    mesh.userData.placedObjectData = data;
-
-    this.manager.scene.add(mesh);
-    this.placedGrass.push({ data: data, mesh: mesh });
+    // Rebuild proper batched LODs
+    this.manager.grassLODManager.rebuildChunkLODs(this);
   }
 
   removeGrassPatch(data) {
@@ -241,10 +256,22 @@ export class TerrainChunk {
     if (idx !== -1) {
       this.manager.scene.remove(this.placedGrass[idx].mesh);
       this.placedGrass.splice(idx, 1);
+      
+      // Rebuild proper batched LODs
+      if (this.manager.grassLODManager) {
+        this.manager.grassLODManager.rebuildChunkLODs(this);
+      }
     }
   }
 
   dispose() {
+    if (this.debugGroup) {
+      this.debugGroup.children.forEach(child => {
+        if (child.geometry) child.geometry.dispose();
+      });
+      this.manager.scene.remove(this.debugGroup);
+    }
+
     if (this.mesh) {
       this.mesh.geometry.dispose();
       this.manager.scene.remove(this.mesh);
@@ -261,6 +288,12 @@ export class TerrainChunk {
     this.placedGrass.forEach(pg => {
       this.manager.scene.remove(pg.mesh);
     });
+
+    if (this.manager.grassLODManager) {
+        this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.high, this);
+        this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.mid, this);
+        this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.low, this);
+    }
 
     this.vegetation = [];
     this.placedObjects = [];
@@ -288,6 +321,11 @@ export class TerrainChunk {
         this.mesh.visible = false;
         this.vegetation.forEach(v => v.visible = false);
         this.placedObjects.forEach(po => po.mesh.visible = false);
+        if (this.grassLODs) {
+            this.grassLODs.high.visible = false;
+            this.grassLODs.mid.visible = false;
+            this.grassLODs.low.visible = false;
+        }
         return;
       }
     }
@@ -296,6 +334,30 @@ export class TerrainChunk {
     this.placedObjects.forEach(po => po.mesh.visible = true);
 
     const p = this.manager.envParams;
+
+    // Grass LOD update
+    if (this.grassLODs && this.mesh.visible) {
+        this.grassLODs.high.visible = false;
+        this.grassLODs.mid.visible = false;
+        this.grassLODs.low.visible = false;
+
+        if (window.DEBUG_GRASS_LOD) {
+           console.log(`Chunk [${this.x},${this.z}] dist: ${Math.round(dist)}`);
+        }
+
+        const gNear = 40;
+        const gMid = 100;
+        const gFar = 200;
+
+        if (dist <= gNear) {
+            this.grassLODs.high.visible = true;
+        } else if (dist <= gMid) {
+            this.grassLODs.mid.visible = true;
+        } else if (dist <= gFar) {
+            this.grassLODs.low.visible = true;
+        }
+    }
+
     if (!p.performance.enableLOD) {
       this.vegetation.forEach(v => { v.visible = true; if (v.isInstancedMesh && v.userData.maxCount) v.count = v.userData.maxCount; });
       return;
@@ -406,6 +468,7 @@ export class ChunkManager {
     });
 
     this.grassManager = new GrassManager(this.scene);
+    this.grassLODManager = new GrassLODManager(this.grassManager);
   }
 
   getGeometry(segments) {

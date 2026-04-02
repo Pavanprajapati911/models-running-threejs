@@ -192,12 +192,20 @@ export class GrassManager {
         const dummy = new THREE.Object3D();
         
         let instanceIdx = 0;
+        const falloffExp = params.falloff !== undefined ? params.falloff : 1.0;
+
         for (let pIdx = 0; pIdx < pointsCount; pIdx++) {
             const center = points[pIdx];
             
             for (let d = 0; d < densityPerPoint; d++) {
                 const angle = Math.random() * Math.PI * 2;
                 const r = Math.sqrt(Math.random()) * radius;
+                
+                // Falloff check
+                const distRatio = r / radius;
+                const falloffChance = Math.pow(1.0 - distRatio, falloffExp);
+                const isVisible = Math.random() < falloffChance;
+
                 const x = center.x + Math.cos(angle) * r;
                 const z = center.z + Math.sin(angle) * r;
 
@@ -213,7 +221,7 @@ export class GrassManager {
                 dummy.rotation.y += Math.random() * Math.PI * 2; // Random spin
                 
                 // Random scale
-                const s = 0.8 + Math.random() * 0.4;
+                const s = isVisible ? (0.8 + Math.random() * 0.4) : 0.0001; // Hide if falloff fails
                 dummy.scale.set(s, s, s);
                 dummy.updateMatrix();
                 mesh.setMatrixAt(instanceIdx, dummy.matrix);

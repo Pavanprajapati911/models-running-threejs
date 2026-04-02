@@ -233,6 +233,10 @@ export class PlacedObjectManager {
       // Load static objects
       if (data.objects) {
         data.objects.forEach(o => {
+          if (o.position) {
+            o.chunk[0] = Math.floor(o.position[0] / this.chunkManager.chunkSize);
+            o.chunk[1] = Math.floor(o.position[2] / this.chunkManager.chunkSize);
+          }
           const key = `${o.chunk[0]},${o.chunk[1]}`;
           if (!this.placedObjects.has(key)) this.placedObjects.set(key, []);
           this.placedObjects.get(key).push(o);
@@ -242,6 +246,10 @@ export class PlacedObjectManager {
       // Load grass patches
       if (data.grass) {
         data.grass.forEach(g => {
+          if (g.position) {
+            g.chunk[0] = Math.floor(g.position[0] / this.chunkManager.chunkSize);
+            g.chunk[1] = Math.floor(g.position[2] / this.chunkManager.chunkSize);
+          }
           const key = `${g.chunk[0]},${g.chunk[1]}`;
           if (!this.placedGrass.has(key)) this.placedGrass.set(key, []);
           this.placedGrass.get(key).push(g);
