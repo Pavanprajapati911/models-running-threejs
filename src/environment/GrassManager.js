@@ -67,8 +67,8 @@ export class GrassManager {
         mat.uniforms.uBaseColor.value.set(params.baseColor);
         mat.uniforms.uTipColor.value.set(params.tipColor);
 
-        const geometry = new THREE.PlaneGeometry(width, height, 1, 6);
-        geometry.translate(0, height * 0.5, 0);
+        // --- NEW ORGANIC CLUMP GEOMETRY ---
+        const geometry = this._createClumpGeometry(width, height);
 
         const mesh = new THREE.InstancedMesh(geometry, mat, count);
         mesh.frustumCulled = false;
@@ -104,11 +104,138 @@ export class GrassManager {
         return mesh;
     }
 
+    _createClumpGeometry(width, height) {
+        const bladeCount = 3;
+        const geometries = [];
+
+        for (let i = 0; i < bladeCount; i++) {
+            const plane = new THREE.PlaneGeometry(width, height, 1, 4); // 4 vertical segments
+            plane.translate(0, height * 0.5, 0);
+            
+            const angle = (i / bladeCount) * Math.PI;
+            const offsetX = (Math.random() - 0.5) * width * 0.3;
+            const offsetZ = (Math.random() - 0.5) * width * 0.3;
+
+            plane.rotateY(angle);
+            plane.translate(offsetX, 0, offsetZ);
+            geometries.push(plane);
+        }
+
+        // Manually merge geometries (since we don't have BufferGeometryUtils)
+        // This is safe because they all have the same attributes and structure
+        const combined = new THREE.BufferGeometry();
+        let totalVertices = 0;
+        let totalIndices = 0;
+
+        geometries.forEach(g => {
+            totalVertices += g.attributes.position.count;
+            totalIndices += g.index.count;
+        });
+
+        const positions = new Float32Array(totalVertices * 3);
+        const normals = new Float32Array(totalVertices * 3);
+        const uvs = new Float32Array(totalVertices * 2);
+        const indices = new Uint16Array(totalIndices);
+
+        let vOffset = 0;
+        let iOffset = 0;
+
+        geometries.forEach(g => {
+            positions.set(g.attributes.position.array, vOffset * 3);
+            normals.set(g.attributes.normal.array, vOffset * 3);
+            uvs.set(g.attributes.uv.array, vOffset * 2);
+
+            const gIndices = g.index.array;
+            for (let j = 0; j < gIndices.length; j++) {
+                indices[iOffset + j] = gIndices[j] + vOffset;
+            }
+
+            vOffset += g.attributes.position.count;
+            iOffset += g.index.count;
+            g.dispose();
+        });
+
+        combined.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        combined.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+        combined.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+        combined.setIndex(new THREE.BufferAttribute(indices, 1));
+
+        return combined;
+    }
+
+    createGrassFromPoints(points, params, getTerrainData) {
+        if (!points || points.length === 0) return null;
+
+        const pointsCount = points.length;
+        const densityPerPoint = params.density || 10;
+        const totalCount = pointsCount * densityPerPoint;
+        const radius = params.radius || 2;
+        const height = params.height || 1.0;
+        const width = params.width || 0.03;
+
+        const mat = this.material.clone();
+        mat.uniforms.uTime = this.sharedUniforms.uTime;
+        mat.uniforms.uPlayerPos = this.sharedUniforms.uPlayerPos;
+        mat.uniforms.uInteractionRadius = this.sharedUniforms.uInteractionRadius;
+        mat.uniforms.uInteractionStrength = this.sharedUniforms.uInteractionStrength;
+        
+        mat.uniforms.uWindSpeed.value = params.windSpeed !== undefined ? params.windSpeed : 2.0;
+        mat.uniforms.uWindStrength.value = params.windStrength !== undefined ? params.windStrength : 0.15;
+        mat.uniforms.uBaseColor.value.set(params.baseColor || '#0c2e0c');
+        mat.uniforms.uTipColor.value.set(params.tipColor || '#6da61a');
+
+        const geometry = this._createClumpGeometry(width, height);
+        const mesh = new THREE.InstancedMesh(geometry, mat, totalCount);
+        mesh.frustumCulled = false;
+
+        const aInstanceData = new Float32Array(totalCount * 4);
+        const dummy = new THREE.Object3D();
+        
+        let instanceIdx = 0;
+        for (let pIdx = 0; pIdx < pointsCount; pIdx++) {
+            const center = points[pIdx];
+            
+            for (let d = 0; d < densityPerPoint; d++) {
+                const angle = Math.random() * Math.PI * 2;
+                const r = Math.sqrt(Math.random()) * radius;
+                const x = center.x + Math.cos(angle) * r;
+                const z = center.z + Math.sin(angle) * r;
+
+                const terrain = getTerrainData(x, z);
+                const y = terrain.height;
+                const normal = terrain.normal;
+
+                dummy.position.set(x, y, z);
+                
+                // Align to normal
+                const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+                dummy.rotation.setFromQuaternion(quat);
+                dummy.rotation.y += Math.random() * Math.PI * 2; // Random spin
+                
+                // Random scale
+                const s = 0.8 + Math.random() * 0.4;
+                dummy.scale.set(s, s, s);
+                dummy.updateMatrix();
+                mesh.setMatrixAt(instanceIdx, dummy.matrix);
+
+                const i4 = instanceIdx * 4;
+                aInstanceData[i4 + 0] = Math.random() * 100; // time offset
+                aInstanceData[i4 + 1] = Math.random();        // color variation
+                aInstanceData[i4 + 2] = (Math.random() - 0.5) * 0.4; // lean
+                aInstanceData[i4 + 3] = (Math.random() - 0.5) * 0.4; // tilt
+                
+                instanceIdx++;
+            }
+        }
+
+        mesh.geometry.setAttribute('aInstanceData', new THREE.InstancedBufferAttribute(aInstanceData, 4));
+        mesh.computeBoundingSphere();
+        mesh.computeBoundingBox();
+
+        return mesh;
+    }
+
     update(dt) {
-        // This is tricky because we have many materials now.
-        // We'll traverse all grass patches in chunks or just update a global time uniform if shared.
-        // Since we cloned materials, we need to update each.
-        // Better way: use a shared uniform object if possible, but colors differ.
-        // We will let the GrassManager be notified of all active patches or just use a global uTime.
+        // Shared time is updated in main loop usually
     }
 }

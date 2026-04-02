@@ -22,37 +22,40 @@ void main() {
     // 🔥 FIX: Must multiply by modelMatrix to get world-space position of the patch
     vec4 worldInstancePos = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
     
-    // 1. TAPER GEOMETRY
+    // 1. ORGANIC SILHOUETTE (Narrow base, Leaf middle, Pointy tip)
     vec3 pos = position;
-    pos.x *= mix(1.0, 0.1, uv.y);
+    float tipTaper = 1.0 - uv.y;
+    float baseNarrow = smoothstep(0.0, 0.3, uv.y) * 0.8 + 0.2;
+    pos.x *= tipTaper * baseNarrow;
     
-    // 2. BENDING LOGIC (Non-linear stiffness)
+    // Width variation per clump
+    pos.x *= 0.8 + aInstanceData.y * 0.4;
+    
+    // 2. GROWTH CURVE (Persistent bend)
+    float growthCurve = pow(uv.y, 2.0) * 0.5;
+    pos.x += growthCurve * (aInstanceData.y - 0.5); // Curve slightly left/right based on variation
+    pos.z += growthCurve * (aInstanceData.z);
+    
+    // 3. BENDING PHYSICS (Non-linear stiffness)
     float bending = pow(uv.y, 2.5);
     
-    // 3. WIND CALCULATION
+    // 4. WIND CALCULATION
     float timeOffset = aInstanceData.x;
     float wind = sin(uTime * uWindSpeed + timeOffset + (worldInstancePos.x * 0.2)) * uWindStrength;
     wind += sin(uTime * uWindSpeed * 2.0 + timeOffset) * uWindStrength * 0.3;
     
-    // 4. LEAN AND TILT
+    // 5. LEAN AND TILT
     float lean = aInstanceData.z * bending;
     float tilt = aInstanceData.w * bending;
     
-    // 5. PLAYER INTERACTION (BENDING AWAY)
-    // Distance check in XZ plane
+    // 6. PLAYER INTERACTION (BENDING AWAY)
     float dist = distance(worldInstancePos.xz, uPlayerPos.xz);
-    
-    // Influence falloff
     float interaction = 1.0 - smoothstep(0.0, uInteractionRadius, dist);
     interaction *= uInteractionStrength;
-    
-    // Direction away from player (with epsilon to avoid NaN)
     vec2 dir = normalize(worldInstancePos.xz - uPlayerPos.xz + 0.0001);
     
-    // Apply interaction displacement
-    // Only applied to top (uv.y) and added to existing wind/lean
-    pos.x += dir.x * interaction * uv.y;
-    pos.z += dir.y * interaction * uv.y;
+    pos.x += dir.x * interaction * uv.y * 1.5;
+    pos.z += dir.y * interaction * uv.y * 1.5;
 
     // Combine all displacements
     pos.x += (wind + tilt) * bending;

@@ -24,8 +24,8 @@ const envParams = {
   terrain: {
     intensity: 1.0,
     specular: 0.5,
-    chunkSize: 50.0,
-    renderDist: 3, // 3x3 or 5x5 chunks
+    chunkSize: 200.0,
+    renderDist: 1, // 3x3 or 5x5 chunks
     lodDistNear: 20.0,
     lodDistMid: 120.0,
     heightMult: 8.0,

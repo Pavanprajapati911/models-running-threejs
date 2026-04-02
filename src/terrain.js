@@ -44,53 +44,57 @@ export class TerrainChunk {
 
   generateHeightCPU(geometry) {
     const pos = geometry.attributes.position;
-    const size = this.manager.chunkSize;
-    const half = size / 2;
+    const segs = this.segments;
+    const chunkSize = this.manager.chunkSize;
 
-    // --- 1. Generate terrain height (same as before)
     for (let i = 0; i < pos.count; i++) {
-      const localX = pos.getX(i);
-      const localZ = pos.getZ(i);
-      const worldX = this.x + localX;
-      const worldZ = this.z + localZ;
+      const ix = i % (segs + 1);
+      const iz = Math.floor(i / (segs + 1));
+      const u = ix / segs;
+      const v = iz / segs;
+
+      const worldX = this.x + (u - 0.5) * chunkSize;
+      const worldZ = this.z + (v - 0.5) * chunkSize;
 
       pos.setY(i, this.manager.getHeight(worldX, worldZ));
     }
 
-    // --- 2. Add SKIRTS (THIS FIXES THE CRACKS)
-    const skirtDepth = 10; // increase if gaps still visible
-    const vertices = [];
+    // --- WORLD-SPACE NORMALS (seamless across chunk borders) ---
+    // Instead of computeVertexNormals() which only samples within the chunk mesh,
+    // we use the same getHeight() as the mesh itself. Adjacent chunks share the
+    // same height function, so normals at shared edges are byte-identical.
+    const eps = 0.5;
+
+    // Ensure normal attribute exists and has correct item size
+    if (!geometry.attributes.normal || geometry.attributes.normal.count !== pos.count) {
+      geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(pos.count * 3), 3));
+    }
+    const normals = geometry.attributes.normal;
 
     for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const y = pos.getY(i);
-      const z = pos.getZ(i);
+      const ix = i % (segs + 1);
+      const iz = Math.floor(i / (segs + 1));
+      const u = ix / segs;
+      const v = iz / segs;
 
-      // Detect edge vertices
-      const isEdge =
-        Math.abs(x + half) < 0.001 ||
-        Math.abs(x - half) < 0.001 ||
-        Math.abs(z + half) < 0.001 ||
-        Math.abs(z - half) < 0.001;
+      const worldX = this.x + (u - 0.5) * chunkSize;
+      const worldZ = this.z + (v - 0.5) * chunkSize;
 
-      if (isEdge) {
-        // duplicate vertex but pushed down
-        vertices.push(x, y - skirtDepth, z);
-      }
+      const hL = this.manager.getHeight(worldX - eps, worldZ);
+      const hR = this.manager.getHeight(worldX + eps, worldZ);
+      const hD = this.manager.getHeight(worldX, worldZ - eps);
+      const hU = this.manager.getHeight(worldX, worldZ + eps);
+
+      // Central difference gives a normal pointing out of the surface
+      const dx = (hR - hL) / (2 * eps);
+      const dz = (hU - hD) / (2 * eps);
+      // Normal: cross product of tangent vectors — simplified to (-dx, 1, -dz) normalised
+      const len = Math.sqrt(dx * dx + 1.0 + dz * dz);
+      normals.setXYZ(i, -dx / len, 1.0 / len, -dz / len);
     }
 
-    // Append skirt vertices
-    if (vertices.length > 0) {
-      const newArray = new Float32Array(pos.array.length + vertices.length);
-      newArray.set(pos.array);
-      newArray.set(vertices, pos.array.length);
-
-      geometry.setAttribute("position", new THREE.BufferAttribute(newArray, 3));
-    }
-
-    // --- 3. Recompute normals
-    geometry.computeVertexNormals();
-    geometry.attributes.position.needsUpdate = true;
+    normals.needsUpdate = true;
+    pos.needsUpdate = true;
   }
 
   regenerateFromSplines() {
@@ -204,10 +208,26 @@ export class TerrainChunk {
     const varParams = GRASS_VARIATIONS[data.variation] || GRASS_VARIATIONS['light_wind'];
     const mergedParams = { ...varParams, ...data.params };
 
-    const mesh = this.manager.grassManager.createGrassPatch(mergedParams);
-    mesh.position.set(data.position[0], data.position[1], data.position[2]);
-    mesh.rotation.set(data.rotation[0], data.rotation[1], data.rotation[2]);
-    mesh.scale.set(data.scale[0], data.scale[1], data.scale[2]);
+    let mesh;
+    if (data.type === "grass_selection" && data.points) {
+      // NEW: Selection-based batch grass
+      mesh = this.manager.grassManager.createGrassFromPoints(
+        data.points, 
+        mergedParams, 
+        (x, z) => ({
+          height: this.manager.getHeight(x, z),
+          normal: this.manager.getTerrainNormal(x, z)
+        })
+      );
+    } else {
+      // LEGACY: Single circular patch
+      mesh = this.manager.grassManager.createGrassPatch(mergedParams);
+      mesh.position.set(data.position[0], data.position[1], data.position[2]);
+      mesh.rotation.set(data.rotation[0], data.rotation[1], data.rotation[2]);
+      mesh.scale.set(data.scale[0], data.scale[1], data.scale[2]);
+    }
+
+    if (!mesh) return;
 
     mesh.userData.isGrassPatch = true;
     mesh.userData.placedObjectData = data;
@@ -342,7 +362,16 @@ export class ChunkManager {
     this.rng = alea(envParams.random.seed);
     this.noise2D = createNoise2D(this.rng);
 
-    this.noise2D = createNoise2D(this.rng);
+    // --- GLOBAL HEIGHTFIELD (Baking System) ---
+    this.worldSize = 1024;
+    this.resolution = 1.0; // 1 unit per pixel
+    this.gridWidth = Math.floor(this.worldSize / this.resolution);
+    this.gridDepth = Math.floor(this.worldSize / this.resolution);
+    this.heightmap = new Float32Array(this.gridWidth * this.gridDepth);
+
+    this.isEditing = false; // Flag for multi-res editing
+
+    this.prefillHeightmap();
 
     // Merge envUniforms with terrain-specific uniforms
     this.envUniforms = {
@@ -437,7 +466,10 @@ export class ChunkManager {
     const n2 = this.noise2D(x * l.hillFreq, z * l.hillFreq);
     const n3 = this.noise2D(x * l.detailFreq, z * l.detailFreq);
 
-    return (n1 * l.baseAmp + n2 * l.hillAmp + n3 * l.detailAmp) * p.heightMult;
+    // 🔥 Reduce noise influence heavily
+    const flatness = this.envParams.terrain.flatness ?? 0.02;
+
+    return (n1 * l.baseAmp + n2 * l.hillAmp + n3 * l.detailAmp) * p.heightMult * flatness;
   }
 
   /**
@@ -445,11 +477,67 @@ export class ChunkManager {
    * @param {number} x
    * @param {number} z
    */
-  getHeight(x, z) {
-    if (this.terrainSplineManager) {
-      return this.terrainSplineManager.evaluateHeight(x, z);
+  prefillHeightmap() {
+    console.log(`🏔️ Initializing Global Heightmap: ${this.gridWidth}x${this.gridDepth}`);
+    const half = this.worldSize / 2;
+    for (let z = 0; z < this.gridDepth; z++) {
+      for (let x = 0; x < this.gridWidth; x++) {
+        const worldX = x * this.resolution - half;
+        const worldZ = z * this.resolution - half;
+        // Prefill including analytic contributions
+        this.heightmap[z * this.gridWidth + x] = this.getHeight(worldX, worldZ);
+      }
     }
-    return this.calculateHeight(x, z);
+  }
+  /**
+   * Returns true if the chunk at (chunkX, chunkZ) overlaps the influence
+   * bounds of any active spline. Used to pin those chunks to maximum LOD
+   * so camera distance never causes a resolution change \u2014 preventing
+   * the spline deformation from visually shifting as the camera moves.
+   */
+  _chunkHasSplineInfluence(chunkX, chunkZ) {
+    if (!this.terrainSplineManager) return false;
+    const splines = this.terrainSplineManager.getSplines();
+    if (!splines.length) return false;
+
+    const half = this.chunkSize / 2;
+    const cMinX = chunkX - half, cMaxX = chunkX + half;
+    const cMinZ = chunkZ - half, cMaxZ = chunkZ + half;
+
+    for (const spline of splines) {
+      const b = spline.bounds;
+      if (!b) continue;
+      // AABB overlap test
+      if (cMaxX >= b.minX && cMinX <= b.maxX &&
+          cMaxZ >= b.minZ && cMinZ <= b.maxZ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Samples height analytically by combining noise, splines, and sculpt operations.
+   */
+  getHeight(x, z, activeOps = null, activeSplines = null) {
+    let h = this.calculateHeight(x, z);
+
+    if (this.terrainSplineManager) {
+      h += this.terrainSplineManager.getSplineEffect(x, z, activeSplines);
+    }
+
+    return h;
+  }
+
+  getTerrainNormal(x, z) {
+    const eps = 0.5;
+    const hL = this.getHeight(x - eps, z);
+    const hR = this.getHeight(x + eps, z);
+    const hD = this.getHeight(x, z - eps);
+    const hU = this.getHeight(x, z + eps);
+    const dx = hR - hL;
+    const dz = hU - hD;
+    return new THREE.Vector3(-dx, 2.0, -dz).normalize();
   }
 
   update(playerPosition) {
@@ -501,13 +589,26 @@ export class ChunkManager {
         if (dist < this.envParams.terrain.lodDistNear) lod = 128;
         else if (dist < this.envParams.performance.lodFar) lod = 64;
 
+        // --- MULTI-RESOLUTION EDIT MODE ---
+        if (this.isEditing) lod = Math.min(lod, 32);
+
+        // --- SPLINE LOCK: chunks intersecting splines keep high resolution ---
+        // Prevents visual popping when camera moves (different vertex density
+        // causes spline deformation to sample at different positions → visual shift).
+        if (this._chunkHasSplineInfluence(chunkX, chunkZ)) {
+          lod = 128; // pin to maximum resolution
+        }
+
         const existing = this.chunks.get(key);
 
         if (!existing) {
           this.chunks.set(key, new TerrainChunk(this, chunkX, chunkZ, lod));
         } else if (existing.segments !== lod) {
-          existing.dispose();
-          this.chunks.set(key, new TerrainChunk(this, chunkX, chunkZ, lod));
+          // Don't recreate chunks that are spline-pinned; they're already at max res
+          if (!this._chunkHasSplineInfluence(chunkX, chunkZ)) {
+            existing.dispose();
+            this.chunks.set(key, new TerrainChunk(this, chunkX, chunkZ, lod));
+          }
         }
       }
     }
@@ -525,4 +626,5 @@ export class ChunkManager {
   }
 
 }
+
 

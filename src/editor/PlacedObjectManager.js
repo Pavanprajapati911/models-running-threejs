@@ -71,6 +71,49 @@ export class PlacedObjectManager {
     return grassObj;
   }
 
+  addGrassSelection(variation, points, params) {
+    const chunkSize = this.chunkManager.chunkSize;
+    const chunkBuckets = new Map(); // key: "x,z", value: array of points
+
+    // Group points by chunk
+    points.forEach(p => {
+      const cx = Math.floor(p.x / chunkSize);
+      const cz = Math.floor(p.z / chunkSize);
+      const key = `${cx},${cz}`;
+      if (!chunkBuckets.has(key)) chunkBuckets.set(key, []);
+      chunkBuckets.get(key).push(p);
+    });
+
+    const results = [];
+
+    // Create selection-based grass patch for each chunk touched
+    chunkBuckets.forEach((bucketPoints, key) => {
+      if (!this.placedGrass.has(key)) this.placedGrass.set(key, []);
+
+      const [cx, cz] = key.split(',').map(Number);
+      
+      const grassObj = {
+        type: "grass_selection",
+        variation: variation,
+        chunk: [cx, cz],
+        // position: used for basic sorting/culling, we'll use the average
+        position: [bucketPoints[0].x, bucketPoints[0].y, bucketPoints[0].z],
+        points: bucketPoints, // THE KEY CHANGE: array of points instead of single pos
+        params: { ...params }
+      };
+
+      this.placedGrass.get(key).push(grassObj);
+      results.push(grassObj);
+
+      const chunk = this.chunkManager.chunks.get(key);
+      if (chunk && chunk.spawnGrassPatch) {
+        chunk.spawnGrassPatch(grassObj);
+      }
+    });
+
+    return results;
+  }
+
   removeObject(pos, radius = 2) {
     const chunkSize = this.chunkManager.chunkSize;
     const chunkX = Math.floor(pos.x / chunkSize);
@@ -147,12 +190,15 @@ export class PlacedObjectManager {
     const data = {
       objects: allObjects,
       grass: allGrass,
-      splines: this.terrainSplineManager ? this.terrainSplineManager.exportJSON() : []
+      // Pass splines directly (TerrainSplineManager.exportJSON now handles the wrapping)
+      terrain: this.terrainSplineManager ? this.terrainSplineManager.exportJSON() : null
     };
 
     console.log(`🌿 Exporting ${allObjects.length} objects`);
     console.log(`🌾 Exporting ${allGrass.length} grass patches`);
-    console.log(`🛣️ Exporting ${data.splines.length} terrain splines`);
+    if (data.terrain) {
+        console.log(`🛣️ Exporting ${data.terrain.splines.length} splines and manual sculpting data`);
+    }
 
     this._download(data, "map_full.json");
 
@@ -202,9 +248,10 @@ export class PlacedObjectManager {
         });
       }
 
-      // Load splines
-      if (data.splines && this.terrainSplineManager) {
-        this.terrainSplineManager.loadJSON(data.splines);
+      // Load terrain (splines + sculpting)
+      const terrainData = data.terrain || data.splines; // support both legacy and new naming
+      if (terrainData && this.terrainSplineManager) {
+        this.terrainSplineManager.loadJSON(terrainData);
       }
 
       console.log(`📥 Loaded: ${data.objects?.length || 0} objects, ${data.grass?.length || 0} grass patches, ${data.splines?.length || 0} splines`);
@@ -238,7 +285,13 @@ export class PlacedObjectManager {
       if (idx !== -1) {
         list.splice(idx, 1);
         const chunk = this.chunkManager.chunks.get(key);
-        if (chunk) chunk.removeGrassPatch(objData);
+        if (chunk) {
+          if (objData.type === "grass_selection" && chunk.removeGrassSelection) {
+             chunk.removeGrassSelection(objData);
+          } else if (chunk.removeGrassPatch) {
+             chunk.removeGrassPatch(objData);
+          }
+        }
         return true;
       }
     }
