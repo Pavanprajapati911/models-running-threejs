@@ -170,6 +170,7 @@ export class EditorController {
 
   clearPreview() {
     if (this.previewMesh) this.previewMesh.visible = false;
+    if (this.modelPreviewGroup) this.modelPreviewGroup.visible = false;
     if (this.grassPreviewMesh) this.grassPreviewMesh.visible = false;
   }
 
@@ -180,14 +181,58 @@ export class EditorController {
       palms: 0xffcc00, jungleTrees: 0x00aa44, deadTrees: 0x996633, rocks: 0x888888,
       grass_static: 0x44ff44, grass_animated: 0x44ff44
     };
+    
+    // Update sphere color (legacy fallback)
     if (this.previewMesh) this.previewMesh.material.color.set(colors[category] ?? 0x00ff88);
 
-    // Auto-open brush folder if grass
+    // ✅ Set category-specific default scale to make small models visible
+    if (category === "grass" || category === "foliage") {
+        this.scale.set(4, 4, 4); 
+    } else if (category === "bushes") {
+        this.scale.set(2, 2, 2);
+    } else {
+        this.scale.set(1, 1, 1);
+    }
+    if (this.previewMesh) this.previewMesh.scale.copy(this.scale);
+
+    // ✅ Update model preview
+    this._updateModelPreview();
+
+    // Auto-open brush folder if grass variation
     if (category === "grass_static" || category === "grass_animated") {
       if (this.brushFolder) this.brushFolder.open();
     } else {
       if (this.brushFolder) this.brushFolder.close();
     }
+  }
+
+  _updateModelPreview() {
+    if (this.modelPreviewGroup) {
+      this.modelPreviewGroup.clear();
+      this.scene.remove(this.modelPreviewGroup);
+      this.modelPreviewGroup = null;
+    }
+
+    const { category, modelIndex } = this.selection;
+    if (category === "grass_static" || category === "grass_animated") return;
+
+    const models = this.chunkManager.vegManager.models.get(category);
+    if (!models || !models[modelIndex]) return;
+
+    const modelData = models[modelIndex];
+    this.modelPreviewGroup = new THREE.Group();
+    
+    modelData.meshes.forEach(sub => {
+      const mat = sub.material.clone();
+      mat.transparent = true;
+      mat.opacity = 0.5;
+      mat.depthWrite = false;
+      const mesh = new THREE.Mesh(sub.geometry, mat);
+      this.modelPreviewGroup.add(mesh);
+    });
+
+    this.modelPreviewGroup.visible = false;
+    this.scene.add(this.modelPreviewGroup);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -437,40 +482,47 @@ export class EditorController {
           const terrainHit = this._raycastTerrain();
           if (terrainHit) {
             this.previewMesh.position.copy(terrainHit);
-            this.previewMesh.visible = !this.isSelectingGrass; // Hide sphere during grass selection
-
-            // --- GRASS PREVIEW CIRCLE ---
-            const isGrass = this.selection.category === "grass_static" || this.selection.category === "grass_animated";
             
-            if (isGrass) {
+            const isGrassVariation = this.selection.category === "grass_static" || this.selection.category === "grass_animated";
+            
+            if (isGrassVariation) {
               if (!this.grassPreviewMesh) this._createGrassPreview();
               
               const radius = this.brushParams.radius;
               this.grassPreviewMesh.position.copy(terrainHit);
-              // Shift up so it sits "on" the ground rather than being half-buried
               this.grassPreviewMesh.position.y += radius * 0.1; 
               this.grassPreviewMesh.scale.setScalar(radius);
-
-              // 3D Spheres look best when upright
               this.grassPreviewMesh.rotation.set(0, 0, 0); 
               
               this.grassPreviewMesh.visible = true;
-              this.previewMesh.visible = false; // Hide sphere when grass brush is active
+              this.previewMesh.visible = false;
+              if (this.modelPreviewGroup) this.modelPreviewGroup.visible = false;
 
               if (this.isSelectingGrass) {
                 this.grassSelectionPoints.push(terrainHit.clone());
               }
             } else {
               if (this.grassPreviewMesh) this.grassPreviewMesh.visible = false;
-              this.previewMesh.visible = true;
+              
+              if (this.modelPreviewGroup) {
+                this.modelPreviewGroup.position.copy(terrainHit);
+                this.modelPreviewGroup.rotation.copy(this.rotation);
+                this.modelPreviewGroup.scale.copy(this.scale);
+                this.modelPreviewGroup.visible = true;
+                this.previewMesh.visible = false;
+              } else {
+                this.previewMesh.visible = true;
+              }
             }
           } else {
             this.previewMesh.visible = false;
             if (this.grassPreviewMesh) this.grassPreviewMesh.visible = false;
+            if (this.modelPreviewGroup) this.modelPreviewGroup.visible = false;
           }
         } else {
           this.previewMesh.visible = false;
           if (this.grassPreviewMesh) this.grassPreviewMesh.visible = false;
+          if (this.modelPreviewGroup) this.modelPreviewGroup.visible = false;
         }
       } else if (this.editorMode === "terrain") {
         this._onTerrainMouseMove(e, hit);

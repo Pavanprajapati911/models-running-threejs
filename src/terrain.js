@@ -199,7 +199,10 @@ export class TerrainChunk {
   spawnPlacedObject(obj) {
     if (!this.manager.vegManager) return;
     const models = this.manager.vegManager.models.get(obj.type) || this.manager.vegManager.models.get("jungleTrees");
-    if (!models || models.length === 0) return;
+    if (!models || models.length === 0) {
+        console.error(`[TerrainChunk] No models found for category: ${obj.type}`);
+        return;
+    }
 
     const idx = Math.min(obj.modelIndex ?? 0, models.length - 1);
     const modelData = models[idx];
@@ -210,9 +213,11 @@ export class TerrainChunk {
     if (modelData.meshes) {
       modelData.meshes.forEach(sub => {
         const mesh = new THREE.Mesh(sub.geometry, sub.material);
-        // Shadows removed
+        mesh.frustumCulled = false; // Prevent accidental culling
         group.add(mesh);
       });
+    } else {
+      console.warn(`[TerrainChunk] Model data for "${obj.type}" has no meshes!`, modelData);
     }
 
     group.position.set(obj.position[0], obj.position[1], obj.position[2]);
@@ -345,9 +350,9 @@ export class TerrainChunk {
            console.log(`Chunk [${this.x},${this.z}] dist: ${Math.round(dist)}`);
         }
 
-        const gNear = 40;
-        const gMid = 100;
-        const gFar = 200;
+        const gNear = 60;
+        const gMid = 110;
+        const gFar = 150;
 
         if (dist <= gNear) {
             this.grassLODs.high.visible = true;
@@ -649,8 +654,8 @@ export class ChunkManager {
         const dist = playerPosition.distanceTo(this.tempVec);
 
         let lod = 16;
-        if (dist < this.envParams.terrain.lodDistNear) lod = 128;
-        else if (dist < this.envParams.performance.lodFar) lod = 64;
+        if (dist < this.envParams.terrain.lodDistNear) lod = 64;
+        else if (dist < this.envParams.performance.lodFar) lod = 32;
 
         // --- MULTI-RESOLUTION EDIT MODE ---
         if (this.isEditing) lod = Math.min(lod, 32);
@@ -659,7 +664,7 @@ export class ChunkManager {
         // Prevents visual popping when camera moves (different vertex density
         // causes spline deformation to sample at different positions → visual shift).
         if (this._chunkHasSplineInfluence(chunkX, chunkZ)) {
-          lod = 128; // pin to maximum resolution
+          lod = 64; // pin to maximum resolution
         }
 
         const existing = this.chunks.get(key);
