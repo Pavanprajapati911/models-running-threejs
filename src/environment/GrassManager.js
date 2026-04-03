@@ -108,25 +108,28 @@ export class GrassManager {
         return mesh;
     }
 
-    _createClumpGeometry(width, height) {
-        const bladeCount = 3;
+    _createClumpGeometry(width, height, lodLevel = 'high') {
         const geometries = [];
+        
+        // Dynamic Geometry LOD
+        // High = 3 vertical segments (smooth bending)
+        // Mid/Low = 1 vertical segment (rigid, massive triangle save)
+        const segments = lodLevel === 'high' ? 3 : 1; 
 
-        for (let i = 0; i < bladeCount; i++) {
-            const plane = new THREE.PlaneGeometry(width, height, 1, 4); // 4 vertical segments
-            plane.translate(0, height * 0.5, 0);
-            
-            const angle = (i / bladeCount) * Math.PI;
-            const offsetX = (Math.random() - 0.5) * width * 0.3;
-            const offsetZ = (Math.random() - 0.5) * width * 0.3;
+        // Cross Plane Formation = 2 Intersecting Planes
+        // + Shape
+        const crossWidth = width * 1.5; // Slightly wider to compensate for fewer blades
 
-            plane.rotateY(angle);
-            plane.translate(offsetX, 0, offsetZ);
-            geometries.push(plane);
-        }
+        const plane1 = new THREE.PlaneGeometry(crossWidth, height, 1, segments);
+        plane1.translate(0, height * 0.5, 0);
+        
+        const plane2 = new THREE.PlaneGeometry(crossWidth, height, 1, segments);
+        plane2.translate(0, height * 0.5, 0);
+        plane2.rotateY(Math.PI / 2); // Rotate 90 degrees to form a +
 
-        // Manually merge geometries (since we don't have BufferGeometryUtils)
-        // This is safe because they all have the same attributes and structure
+        geometries.push(plane1, plane2);
+
+        // Manually merge geometries
         const combined = new THREE.BufferGeometry();
         let totalVertices = 0;
         let totalIndices = 0;

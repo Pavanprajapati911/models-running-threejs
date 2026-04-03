@@ -139,11 +139,15 @@ export class GrassLODManager {
 
     let clumpWidth = width;
     let clumpHeight = height;
-    if (densityMult === 0.1) {
+    let lodLevel = 'high';
+    if (densityMult === 0.4) {
+        lodLevel = 'mid';
+    } else if (densityMult === 0.1) {
+        lodLevel = 'low';
         clumpWidth *= 2; 
     }
 
-    const geometry = this.grassManager._createClumpGeometry(clumpWidth, clumpHeight);
+    const geometry = this.grassManager._createClumpGeometry(clumpWidth, clumpHeight, lodLevel);
     const mesh = new THREE.InstancedMesh(geometry, mat, totalInstances);
     mesh.frustumCulled = false;
     mesh.castShadow = false;

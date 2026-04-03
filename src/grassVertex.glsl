@@ -19,8 +19,9 @@ void main() {
     vVariation = aInstanceData.y;
     
     // 0. WORLD POSITION CALC
-    // 🔥 FIX: Must multiply by modelMatrix to get world-space position of the patch
-    vec4 worldInstancePos = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+    // 🔥 OPTIMIZED: Direct translation extraction saves heavy matrix multiplication
+    vec3 instancePos = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+    vec3 worldInstancePos = (modelMatrix * vec4(instancePos, 1.0)).xyz;
     
     // 1. ORGANIC SILHOUETTE (Narrow base, Leaf middle, Pointy tip)
     vec3 pos = position;
@@ -30,6 +31,11 @@ void main() {
     
     // Width variation per clump
     pos.x *= 0.8 + aInstanceData.y * 0.4;
+    
+    // FAKE CURVATURE: Volume displacement to compensate for flat planes
+    float curveVol = sin(uv.y * 3.14159) * 0.03;
+    pos.x += curveVol * sin(aInstanceData.y * 10.0);
+    pos.z += curveVol * cos(aInstanceData.y * 10.0);
     
     // 2. GROWTH CURVE (Persistent bend)
     float growthCurve = pow(uv.y, 2.0) * 0.5;
