@@ -580,15 +580,15 @@ export class ChunkManager {
   }
 
   /**
-   * Samples height analytically by combining noise, splines, and sculpt operations.
+   * Samples terrain height. Reads spline contribution from the pre-baked cache
+   * (populated by TerrainSplineManager via Web Worker) for O(1) bilinear lookup.
+   * Falls back to analytic getSplineEffect() only if cache is unavailable.
    */
-  getHeight(x, z, activeOps = null, activeSplines = null) {
+  getHeight(x, z) {
     let h = this.calculateHeight(x, z);
-
     if (this.terrainSplineManager) {
-      h += this.terrainSplineManager.getSplineEffect(x, z, activeSplines);
+      h += this.terrainSplineManager.getCachedSplineHeight(x, z);
     }
-
     return h;
   }
 

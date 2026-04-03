@@ -27,8 +27,13 @@ export class SelectionManager {
 
     this._onPointerDown = this._onPointerDown.bind(this);
     this._onPointerMove = this._onPointerMove.bind(this);
-    this._onPointerUp = this._onPointerUp.bind(this);
-    this._onKeyDown = this._onKeyDown.bind(this);
+    this._onPointerUp   = this._onPointerUp.bind(this);
+    this._onKeyDown     = this._onKeyDown.bind(this);
+
+    // RAF throttle state for drag
+    this._dragRafPending = false;
+    this._pendingDragX   = 0;
+    this._pendingDragZ   = 0;
 
     this.enable();
   }
@@ -52,7 +57,6 @@ export class SelectionManager {
    * Selection and Drag-start
    */
   _onPointerDown(e) {
-    // Avoid selecting when clicking UI
     if (e.target.closest('.lil-gui, button, input, select, textarea, [data-ui]')) return;
     if (document.pointerLockElement) return;
     if (!this.editor.active || this.editor.editorMode !== "terrain") return;
@@ -60,7 +64,6 @@ export class SelectionManager {
     this.updateMouse(e);
     this.raycaster.setFromCamera(this.mouse, this.camera);
 
-    // Check for spline points
     const pointsGroup = this.editor.splinePointsGroup;
     if (!pointsGroup) return;
 
@@ -73,39 +76,24 @@ export class SelectionManager {
       this.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), pointHit.point);
       this.dragOffset.copy(pointHit.object.position).sub(pointHit.point);
 
+      // Drop to lower LOD immediately during drag
+      if (this.terrain) this.terrain.isEditing = true;
+
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     } else {
-      // 3. We didn't hit a dot. But did we hit a spline line?
       const linesGroup = this.editor.splineLinesGroup;
       const lineHits = this.raycaster.intersectObjects(linesGroup.children, true);
-
       if (lineHits.length > 0) {
-        const hitLine = lineHits[0].object;
-
-        // Traverse up if needed (in case of LineSegments / grouped meshes)
-        let obj = hitLine;
-        while (obj && !obj.userData?.splineId) {
-          obj = obj.parent;
-        }
-
+        let obj = lineHits[0].object;
+        while (obj && !obj.userData?.splineId) obj = obj.parent;
         if (obj && obj.userData.splineId !== undefined) {
-          const splineId = obj.userData.splineId;
-
-          // ✅ Set selected spline
-          this.editor.selectedSplineId = splineId;
-
-          // ❌ Clear point selection 
+          this.editor.selectedSplineId = obj.userData.splineId;
           this.selectedPointData = null;
-
           if (this.pointFolder) { this.pointFolder.destroy(); this.pointFolder = null; }
-
-          // 🔥 Re-render → now dots will appear
           this.editor.renderSplines();
         }
-
         return;
       } else {
-        // We really clicked away. Clear everything.
         this.clearSelection();
       }
     }
@@ -121,24 +109,35 @@ export class SelectionManager {
     this.raycaster.setFromCamera(this.mouse, this.camera);
 
     if (this.isDragging && this.selectedPointData) {
-      // Find where mouse intersects the drag plane
       if (this.raycaster.ray.intersectPlane(this.dragPlane, this.dragIntersection)) {
         const newPos = this.dragIntersection.clone().add(this.dragOffset);
-
-        // Find current terrain height for smooth visual snapping
         const h = this.terrain.getHeight(newPos.x, newPos.z);
         newPos.y = h + 0.5;
 
-        this.syncPoint(newPos.x, newPos.z);
+        // RAF gate: queue the position but only call syncPoint once per frame
+        this._pendingDragX = newPos.x;
+        this._pendingDragZ = newPos.z;
+        if (!this._dragRafPending) {
+          this._dragRafPending = true;
+          requestAnimationFrame(() => {
+            this._dragRafPending = false;
+            if (this.isDragging) this.syncPoint(this._pendingDragX, this._pendingDragZ);
+          });
+        }
       }
     } else {
-      // Optional: Hover effects
       this.checkHover();
     }
   }
 
   _onPointerUp() {
+    if (this.isDragging && this.selectedPointData) {
+      // Final guaranteed flush on release
+      this.splineManager.flushUpdates();
+      if (this.terrain) this.terrain.isEditing = false;
+    }
     this.isDragging = false;
+    this._dragRafPending = false;
     document.body.style.cursor = 'auto';
   }
 

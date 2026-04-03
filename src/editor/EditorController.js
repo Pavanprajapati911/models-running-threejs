@@ -72,12 +72,12 @@ export class EditorController {
     this._setupHelpGui();
     this.renderSplines();
 
-    // Debounced update for smooth editing
+    // Debounced update for smooth editing — 350ms lets rapid drags coalesce
     this.debouncedFlush = this.debounce(() => {
       this.terrainSplineManager.flushUpdates();
-      this.chunkManager.isEditing = false; // Reset editing state to trigger high-res
-      this.chunkManager.update(this.camera.position); // Force refresh
-    }, 150);
+      this.chunkManager.isEditing = false;
+      this.chunkManager.update(this.camera.position);
+    }, 350);
   }
 
   debounce(fn, delay) {
