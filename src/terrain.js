@@ -337,6 +337,7 @@ export class TerrainChunk {
 
     this.mesh.visible = true;
     this.placedObjects.forEach(po => po.mesh.visible = true);
+    // Vegetation quick visibility is handled in quickFrustumCheck alongside mesh, so we only need to do density math here.
 
     const p = this.manager.envParams;
 
@@ -396,6 +397,29 @@ export class TerrainChunk {
       }
     });
   }
+
+  quickFrustumCheck(frustum) {
+    if (!this.mesh) return;
+    
+    if (frustum) {
+      const sphereRadius = (this.manager.chunkSize * 0.5) * 1.414 + 15;
+      const sphere = new THREE.Sphere(this.manager.tempVec.set(this.x, 0, this.z), sphereRadius);
+      if (!frustum.intersectsSphere(sphere)) {
+        this.mesh.visible = false;
+        this.vegetation.forEach(v => v.visible = false);
+        this.placedObjects.forEach(po => po.mesh.visible = false);
+        if (this.grassLODs) {
+            this.grassLODs.high.visible = false;
+            this.grassLODs.mid.visible = false;
+            this.grassLODs.low.visible = false;
+        }
+      } else {
+        this.mesh.visible = true;
+        this.placedObjects.forEach(po => po.mesh.visible = true);
+        // We do NOT toggle grassLODs here, the stagger updateLOD handles it.
+      }
+    }
+  }
 }
 
 export class ChunkManager {
@@ -437,6 +461,7 @@ export class ChunkManager {
     this.heightmap = new Float32Array(this.gridWidth * this.gridDepth);
 
     this.isEditing = false; // Flag for multi-res editing
+    this.updateFrameOffset = 0; // For staggered updates
 
     this.prefillHeightmap();
 
@@ -681,14 +706,23 @@ export class ChunkManager {
       }
     }
 
-    // Remove old chunks
+    this.updateFrameOffset++;
+    let chunkIndex = 0;
+
+    // Remove old chunks and update active
     for (const [key, chunk] of this.chunks) {
       if (!active.has(key)) {
         chunk.dispose();
         this.chunks.delete(key);
       } else {
-        // Frustum & Density Culling
-        chunk.updateLOD(playerPosition, frustum);
+        chunkIndex++;
+        // Always do fast frustum culling
+        chunk.quickFrustumCheck(frustum);
+        
+        // Stagger expensive density and LOD math (update 1/4th of chunks per frame)
+        if (chunk.mesh && chunk.mesh.visible && (chunkIndex % 4 === this.updateFrameOffset % 4)) {
+           chunk.updateLOD(playerPosition, null); // Frustum already checked
+        }
       }
     }
   }

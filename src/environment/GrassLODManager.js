@@ -146,6 +146,8 @@ export class GrassLODManager {
     const geometry = this.grassManager._createClumpGeometry(clumpWidth, clumpHeight);
     const mesh = new THREE.InstancedMesh(geometry, mat, totalInstances);
     mesh.frustumCulled = false;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
 
     const aInstanceData = new Float32Array(totalInstances * 4);
     const dummy = new THREE.Object3D();

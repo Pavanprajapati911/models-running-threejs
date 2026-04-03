@@ -45,7 +45,9 @@ export class GrassManager {
             },
             vertexShader,
             fragmentShader,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            transparent: false,
+            alphaTest: 0.5
         });
     }
 
@@ -72,6 +74,8 @@ export class GrassManager {
 
         const mesh = new THREE.InstancedMesh(geometry, mat, count);
         mesh.frustumCulled = false;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
 
         const aInstanceData = new Float32Array(count * 4);
         const dummy = new THREE.Object3D();
@@ -184,9 +188,10 @@ export class GrassManager {
         mat.uniforms.uBaseColor.value.set(params.baseColor || '#0c2e0c');
         mat.uniforms.uTipColor.value.set(params.tipColor || '#6da61a');
 
-        const geometry = this._createClumpGeometry(width, height);
         const mesh = new THREE.InstancedMesh(geometry, mat, totalCount);
         mesh.frustumCulled = false;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
 
         const aInstanceData = new Float32Array(totalCount * 4);
         const dummy = new THREE.Object3D();

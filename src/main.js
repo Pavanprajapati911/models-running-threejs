@@ -137,6 +137,9 @@ await Rapier.init({});
 let lastTime = performance.now();
 let yaw = 0;
 let pitch = 0;
+let fpsAverage = 60;
+let timeSinceScaleCheck = 0;
+const UP_VECTOR = new THREE.Vector3(0, 1, 0);
 /* =========================
    LOADING MANAGER
 ========================= */
@@ -541,6 +544,28 @@ function animate() {
   const dt = Math.min((now - lastTime) / 1000, 0.033);
   lastTime = now;
 
+  // Dynamic Resolution Scaling
+  fpsAverage = fpsAverage * 0.9 + (1.0 / dt) * 0.1;
+  timeSinceScaleCheck += dt;
+
+  if (timeSinceScaleCheck > 2.0) {
+      if (fpsAverage < 45) {
+          const currentRatio = renderer.getPixelRatio();
+          if (currentRatio > 0.8) {
+              renderer.setPixelRatio(Math.max(0.75, currentRatio - 0.25));
+              console.log(`[Performance] Dropping Pixel Ratio to ${renderer.getPixelRatio()} (FPS: ${Math.round(fpsAverage)})`);
+          }
+      } else if (fpsAverage > 55) {
+          const currentRatio = renderer.getPixelRatio();
+          const targetRatio = Math.min(window.devicePixelRatio, 1.5);
+          if (currentRatio < targetRatio) {
+              renderer.setPixelRatio(Math.min(targetRatio, currentRatio + 0.25));
+              console.log(`[Performance] Restoring Pixel Ratio to ${renderer.getPixelRatio()} (FPS: ${Math.round(fpsAverage)})`);
+          }
+      }
+      timeSinceScaleCheck = 0;
+  }
+
   if (localChar && localChar.model) {
     const playerPos = localChar.model.position;
     chunkManager.envUniforms.uPlayerPos.value.copy(playerPos);
@@ -569,7 +594,7 @@ function animate() {
       Math.cos(yaw) * Math.cos(pitch)
     );
 
-    tempVec2.crossVectors(new THREE.Vector3(0, 1, 0), tempVec1).normalize();
+    tempVec2.crossVectors(UP_VECTOR, tempVec1).normalize();
 
     if (keys["KeyW"]) camera.position.addScaledVector(tempVec1, -speed * dt);
     if (keys["KeyS"]) camera.position.addScaledVector(tempVec1, speed * dt);
