@@ -541,11 +541,22 @@ export class EditorController {
       if (this.editorMode === "object") {
         if (e.shiftKey) {
           const amt = (e.deltaY > 0 ? -1 : 1) * 0.1;
-          this.scale.addScalar(amt);
-          this.scale.x = Math.max(0.1, this.scale.x);
-          this.scale.y = Math.max(0.1, this.scale.y);
-          this.scale.z = Math.max(0.1, this.scale.z);
-          if (this.previewMesh) this.previewMesh.scale.copy(this.scale);
+          
+          // If editing grass, scale the brush radius instead of the model scale
+          const isGrass = this.selection.category === "grass_static" || this.selection.category === "grass_animated";
+          if (isGrass) {
+            this.brushParams.radius = Math.max(1, this.brushParams.radius + amt * 10);
+            if (this.grassPreviewMesh) {
+              this.grassPreviewMesh.scale.setScalar(this.brushParams.radius);
+              this.grassPreviewMesh.position.y = this.grassPreviewMesh.position.y; // Trigger update if needed
+            }
+          } else {
+            this.scale.addScalar(amt);
+            this.scale.x = Math.max(0.1, this.scale.x);
+            this.scale.y = Math.max(0.1, this.scale.y);
+            this.scale.z = Math.max(0.1, this.scale.z);
+            if (this.previewMesh) this.previewMesh.scale.copy(this.scale);
+          }
         } else {
           this.rotation.y += (e.deltaY > 0 ? 1 : -1) * 0.15;
           if (this.previewMesh) this.previewMesh.rotation.copy(this.rotation);
@@ -1207,7 +1218,8 @@ export class EditorController {
       ...vParams,
       radius: this.brushParams.radius,
       density: this.brushParams.density,
-      falloff: this.brushParams.falloff
+      falloff: this.brushParams.falloff,
+      scale: [this.scale.x, this.scale.y, this.scale.z]
     };
 
     // NEW: Batch process the entire selection as one stroke

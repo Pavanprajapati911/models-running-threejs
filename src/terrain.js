@@ -24,11 +24,13 @@ export class TerrainChunk {
     this.placedObjects = [];
     this.placedGrass = [];
     this.grassLODs = null;
-
-    this.init();
+    this.initialized = false;
   }
 
   init() {
+    if (this.initialized) return;
+    this.initialized = true;
+
     const geometry = this.manager.getGeometry(this.segments).clone();
 
     this.mesh = new THREE.Mesh(geometry, this.manager.sharedMaterial);
@@ -37,42 +39,6 @@ export class TerrainChunk {
     this.manager.scene.add(this.mesh);
 
     this.generateHeightCPU(geometry);
-
-    // --- DEBUG VISUALS ---
-    /*
-    this.debugGroup = new THREE.Group();
-    this.debugGroup.position.set(this.x, 0, this.z);
-    
-    // Center circle
-    const circleGeo = new THREE.CircleGeometry(2, 16);
-    circleGeo.rotateX(-Math.PI / 2);
-    const circleMat = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
-    const circleMesh = new THREE.Mesh(circleGeo, circleMat);
-    const centerH = this.manager.getHeight(this.x, this.z);
-    circleMesh.position.y = centerH + 0.5;
-    this.debugGroup.add(circleMesh);
-
-    // Border
-    const s = this.manager.chunkSize;
-    const borderGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-s/2, 0, -s/2),
-        new THREE.Vector3(s/2, 0, -s/2),
-        new THREE.Vector3(s/2, 0, s/2),
-        new THREE.Vector3(-s/2, 0, s/2),
-        new THREE.Vector3(-s/2, 0, -s/2)
-    ]);
-    const pts = borderGeo.attributes.position;
-    for(let i=0; i<pts.count; i++) {
-        const h = this.manager.getHeight(this.x + pts.getX(i), this.z + pts.getZ(i));
-        pts.setY(i, h + 0.5);
-    }
-    const borderMat = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
-    const borderLine = new THREE.Line(borderGeo, borderMat);
-    this.debugGroup.add(borderLine);
-    
-    this.manager.scene.add(this.debugGroup);
-    */
-    // ---------------------
 
     this.tryCreatePhysics();
     this.spawnVegetation();
@@ -95,13 +61,8 @@ export class TerrainChunk {
       pos.setY(i, this.manager.getHeight(worldX, worldZ));
     }
 
-    // --- WORLD-SPACE NORMALS (seamless across chunk borders) ---
-    // Instead of computeVertexNormals() which only samples within the chunk mesh,
-    // we use the same getHeight() as the mesh itself. Adjacent chunks share the
-    // same height function, so normals at shared edges are byte-identical.
     const eps = 0.5;
 
-    // Ensure normal attribute exists and has correct item size
     if (!geometry.attributes.normal || geometry.attributes.normal.count !== pos.count) {
       geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(pos.count * 3), 3));
     }
@@ -121,10 +82,8 @@ export class TerrainChunk {
       const hD = this.manager.getHeight(worldX, worldZ - eps);
       const hU = this.manager.getHeight(worldX, worldZ + eps);
 
-      // Central difference gives a normal pointing out of the surface
       const dx = (hR - hL) / (2 * eps);
       const dz = (hU - hD) / (2 * eps);
-      // Normal: cross product of tangent vectors — simplified to (-dx, 1, -dz) normalised
       const len = Math.sqrt(dx * dx + 1.0 + dz * dz);
       normals.setXYZ(i, -dx / len, 1.0 / len, -dz / len);
     }
@@ -150,8 +109,22 @@ export class TerrainChunk {
 
 
   tryCreatePhysics() {
-    const dist = this.manager.camera.position.distanceTo(this.mesh.position);
-    if (dist > 200) return; // only near chunks
+    const dist = this.manager.camera.position.distanceTo(new THREE.Vector3(this.x, 0, this.z));
+    const physicsDist = this.manager.envParams.performance.physicsDist || 120;
+
+    if (dist > physicsDist) {
+      if (this.collider) {
+        this.manager.world.removeCollider(this.collider, true);
+        this.collider = null;
+      }
+      if (this.body) {
+        this.manager.world.removeRigidBody(this.body);
+        this.body = null;
+      }
+      return;
+    }
+
+    if (this.collider) return; // Already has physics
 
     const geometry = this.mesh.geometry;
     const vertices = geometry.attributes.position.array;
@@ -171,7 +144,6 @@ export class TerrainChunk {
   spawnVegetation() {
     const p = this.manager.envParams;
 
-    // 1. Procedural Mode
     if (p.mode && p.mode.type === "procedural" && this.manager.vegManager) {
       const instances = this.manager.vegManager.getVegetationForChunk(
         this.x,
@@ -186,7 +158,6 @@ export class TerrainChunk {
       });
     }
 
-    // 2. Editor / Runtime Mode (jungle.json)
     if (this.manager.placedObjectManager) {
       const cx = Math.floor(this.x / this.manager.chunkSize);
       const cz = Math.floor(this.z / this.manager.chunkSize);
@@ -213,11 +184,9 @@ export class TerrainChunk {
     if (modelData.meshes) {
       modelData.meshes.forEach(sub => {
         const mesh = new THREE.Mesh(sub.geometry, sub.material);
-        mesh.frustumCulled = false; // Prevent accidental culling
+        mesh.frustumCulled = false;
         group.add(mesh);
       });
-    } else {
-      console.warn(`[TerrainChunk] Model data for "${obj.type}" has no meshes!`, modelData);
     }
 
     group.position.set(obj.position[0], obj.position[1], obj.position[2]);
@@ -245,14 +214,11 @@ export class TerrainChunk {
   spawnGrassPatch(data) {
     if (!this.manager.grassLODManager) return;
     
-    // Create lightweight proxy for selection
     const proxyMesh = this.manager.grassLODManager.createProxy(data);
     
-    // Add to chunk data
     this.placedGrass.push({ data: data, mesh: proxyMesh });
     this.manager.scene.add(proxyMesh);
 
-    // Rebuild proper batched LODs
     this.manager.grassLODManager.rebuildChunkLODs(this);
   }
 
@@ -262,7 +228,6 @@ export class TerrainChunk {
       this.manager.scene.remove(this.placedGrass[idx].mesh);
       this.placedGrass.splice(idx, 1);
       
-      // Rebuild proper batched LODs
       if (this.manager.grassLODManager) {
         this.manager.grassLODManager.rebuildChunkLODs(this);
       }
@@ -299,6 +264,10 @@ export class TerrainChunk {
         this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.mid, this);
         this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.low, this);
     }
+    
+    // Remove from init queue if present
+    const qIdx = this.manager.initQueue.indexOf(this);
+    if (qIdx !== -1) this.manager.initQueue.splice(qIdx, 1);
 
     this.vegetation = [];
     this.placedObjects = [];
@@ -337,19 +306,13 @@ export class TerrainChunk {
 
     this.mesh.visible = true;
     this.placedObjects.forEach(po => po.mesh.visible = true);
-    // Vegetation quick visibility is handled in quickFrustumCheck alongside mesh, so we only need to do density math here.
 
     const p = this.manager.envParams;
 
-    // Grass LOD update
     if (this.grassLODs && this.mesh.visible) {
         this.grassLODs.high.visible = false;
         this.grassLODs.mid.visible = false;
         this.grassLODs.low.visible = false;
-
-        if (window.DEBUG_GRASS_LOD) {
-           console.log(`Chunk [${this.x},${this.z}] dist: ${Math.round(dist)}`);
-        }
 
         const gNear = 60;
         const gMid = 110;
@@ -362,6 +325,11 @@ export class TerrainChunk {
         } else if (dist <= gFar) {
             this.grassLODs.low.visible = true;
         }
+    }
+
+    // Dynamic physics based on distance
+    if (this.initialized) {
+        this.tryCreatePhysics();
     }
 
     if (!p.performance.enableLOD) {
@@ -416,23 +384,12 @@ export class TerrainChunk {
       } else {
         this.mesh.visible = true;
         this.placedObjects.forEach(po => po.mesh.visible = true);
-        // We do NOT toggle grassLODs here, the stagger updateLOD handles it.
       }
     }
   }
 }
 
 export class ChunkManager {
-  /**
-   * @param {THREE.Scene} scene
-   * @param {*} world  Rapier physics world
-   * @param {THREE.Camera} camera
-   * @param {Function} noise2D  simplex noise function (unused — kept for API compat)
-   * @param {Object} envUniforms
-   * @param {Object} envParams
-   * @param {import('./editor/PlacedObjectManager.js').PlacedObjectManager} placedObjectManager
-   * @param {import('./editor/TerrainSplineManager.js').TerrainSplineManager} terrainSplineManager
-   */
   constructor(scene, world, camera, noise2D, envUniforms, envParams, placedObjectManager, terrainSplineManager) {
     this.scene = scene;
     this.world = world;
@@ -445,48 +402,59 @@ export class ChunkManager {
 
     this.chunkSize = envParams.terrain.chunkSize;
     this.chunks = new Map();
+    this.initQueue = [];
 
     this.tempVec = new THREE.Vector3();
     this.geometryCache = {};
+    
+    const textureLoader = new THREE.TextureLoader();
+    this.mudTex = textureLoader.load('/textures/brown_mud/brown_mud_03_diff_1k.jpg');
+    this.mudTex.wrapS = THREE.RepeatWrapping;
+    this.mudTex.wrapT = THREE.RepeatWrapping;
+    this.mudTex.colorSpace = THREE.SRGBColorSpace;
+    
+    this.forestTex = textureLoader.load('/textures/forest_ground/forrest_ground_01_diff_1k.jpg');
+    this.forestTex.wrapS = THREE.RepeatWrapping;
+    this.forestTex.wrapT = THREE.RepeatWrapping;
+    this.forestTex.colorSpace = THREE.SRGBColorSpace;
 
-    // Seeded noise
     this.rng = alea(envParams.random.seed);
     this.noise2D = createNoise2D(this.rng);
 
-    // --- GLOBAL HEIGHTFIELD (Baking System) ---
     this.worldSize = 1024;
-    this.resolution = 1.0; // 1 unit per pixel
+    this.resolution = 1.0;
     this.gridWidth = Math.floor(this.worldSize / this.resolution);
     this.gridDepth = Math.floor(this.worldSize / this.resolution);
     this.heightmap = new Float32Array(this.gridWidth * this.gridDepth);
 
-    this.isEditing = false; // Flag for multi-res editing
-    this.updateFrameOffset = 0; // For staggered updates
+    this.isEditing = false;
+    this.updateFrameOffset = 0;
 
     this.prefillHeightmap();
 
-    // Merge envUniforms with terrain-specific uniforms
     this.envUniforms = {
       ...this.envUniforms,
       uLightDir: { value: new THREE.Vector3() },
       uLightColor: { value: new THREE.Color(1, 1, 1) },
       uCameraPos: { value: new THREE.Vector3() },
-      uDirtIntensity: { value: this.envParams.terrain.dirtTextureStrength },
-      uColorVariation: { value: this.envParams.terrain.grassTextureStrength },
+      uDirtIntensity: { value: this.envParams.terrain.dirtIntensity },
+      uColorVariation: { value: this.envParams.terrain.colorVariation },
       uGlobalSeed: { value: this.envParams.random.seed },
       uPlayerPos: { value: new THREE.Vector3() },
       uInteractionRadius: { value: 1.5 },
-      uInteractionStrength: { value: 0.8 }
+      uInteractionStrength: { value: 0.8 },
+      uMudTex: { value: this.mudTex },
+      uForestTex: { value: this.forestTex },
+      uForestTexScale: { value: this.envParams.terrain.forestTexScale },
+      uMudTexScale: { value: this.envParams.terrain.mudTexScale }
     };
 
-    // ✅ SHARED MATERIAL (BIG WIN)
     this.sharedMaterial = new THREE.ShaderMaterial({
       uniforms: this.envUniforms,
       vertexShader,
       fragmentShader,
     });
 
-    // Vegetation
     this.vegManager = new VegetationManager(
       scene,
       this.calculateHeight.bind(this),
@@ -550,7 +518,6 @@ export class ChunkManager {
     return true;
   }
 
-  /** Returns the raw noise height (no splines) at world (x, z). */
   calculateHeight(x, z) {
     const p = this.envParams.terrain;
     const l = this.envParams.lowland;
@@ -559,35 +526,22 @@ export class ChunkManager {
     const n2 = this.noise2D(x * l.hillFreq, z * l.hillFreq);
     const n3 = this.noise2D(x * l.detailFreq, z * l.detailFreq);
 
-    // 🔥 Reduce noise influence heavily
     const flatness = this.envParams.terrain.flatness ?? 0.02;
 
     return (n1 * l.baseAmp + n2 * l.hillAmp + n3 * l.detailAmp) * p.heightMult * flatness;
   }
 
-  /**
-   * Full height (used by character physics, etc.).
-   * @param {number} x
-   * @param {number} z
-   */
   prefillHeightmap() {
-    console.log(`🏔️ Initializing Global Heightmap: ${this.gridWidth}x${this.gridDepth}`);
     const half = this.worldSize / 2;
     for (let z = 0; z < this.gridDepth; z++) {
       for (let x = 0; x < this.gridWidth; x++) {
         const worldX = x * this.resolution - half;
         const worldZ = z * this.resolution - half;
-        // Prefill including analytic contributions
         this.heightmap[z * this.gridWidth + x] = this.getHeight(worldX, worldZ);
       }
     }
   }
-  /**
-   * Returns true if the chunk at (chunkX, chunkZ) overlaps the influence
-   * bounds of any active spline. Used to pin those chunks to maximum LOD
-   * so camera distance never causes a resolution change \u2014 preventing
-   * the spline deformation from visually shifting as the camera moves.
-   */
+
   _chunkHasSplineInfluence(chunkX, chunkZ) {
     if (!this.terrainSplineManager) return false;
     const splines = this.terrainSplineManager.getSplines();
@@ -600,7 +554,6 @@ export class ChunkManager {
     for (const spline of splines) {
       const b = spline.bounds;
       if (!b) continue;
-      // AABB overlap test
       if (cMaxX >= b.minX && cMinX <= b.maxX &&
           cMaxZ >= b.minZ && cMinZ <= b.maxZ) {
         return true;
@@ -609,11 +562,6 @@ export class ChunkManager {
     return false;
   }
 
-  /**
-   * Samples terrain height. Reads spline contribution from the pre-baked cache
-   * (populated by TerrainSplineManager via Web Worker) for O(1) bilinear lookup.
-   * Falls back to analytic getSplineEffect() only if cache is unavailable.
-   */
   getHeight(x, z) {
     let h = this.calculateHeight(x, z);
     if (this.terrainSplineManager) {
@@ -634,7 +582,6 @@ export class ChunkManager {
   }
 
   update(playerPosition) {
-    // ✅ GLOBAL uniform updates (ONCE)
     this.envUniforms.uCameraPos.value.copy(this.camera.position);
     this.envUniforms.uLightDir.value
       .copy(this.envUniforms.uSunPos.value)
@@ -647,12 +594,12 @@ export class ChunkManager {
       this.grassManager.sharedUniforms.uInteractionStrength.value = this.envUniforms.uInteractionStrength.value;
     }
 
-    // Fast sync GUI params
-    this.envUniforms.uColorVariation.value = this.envParams.terrain.grassTextureStrength;
-    this.envUniforms.uDirtIntensity.value = this.envParams.terrain.dirtTextureStrength;
+    this.envUniforms.uColorVariation.value = this.envParams.terrain.colorVariation;
+    this.envUniforms.uDirtIntensity.value = this.envParams.terrain.dirtIntensity;
+    this.envUniforms.uForestTexScale.value = this.envParams.terrain.forestTexScale;
+    this.envUniforms.uMudTexScale.value = this.envParams.terrain.mudTexScale;
     this.envUniforms.uGlobalSeed.value = this.envParams.random.seed;
 
-    // Interaction sync
     this.envUniforms.uInteractionRadius.value = this.envParams.interaction.radius;
     this.envUniforms.uInteractionStrength.value = this.envParams.interaction.strength;
 
@@ -682,51 +629,59 @@ export class ChunkManager {
         if (dist < this.envParams.terrain.lodDistNear) lod = 64;
         else if (dist < this.envParams.performance.lodFar) lod = 32;
 
-        // --- MULTI-RESOLUTION EDIT MODE ---
         if (this.isEditing) lod = Math.min(lod, 32);
 
-        // --- SPLINE LOCK: chunks intersecting splines keep high resolution ---
-        // Prevents visual popping when camera moves (different vertex density
-        // causes spline deformation to sample at different positions → visual shift).
         if (this._chunkHasSplineInfluence(chunkX, chunkZ)) {
-          lod = 64; // pin to maximum resolution
+          lod = 64;
         }
 
         const existing = this.chunks.get(key);
 
         if (!existing) {
-          this.chunks.set(key, new TerrainChunk(this, chunkX, chunkZ, lod));
+          const chunk = new TerrainChunk(this, chunkX, chunkZ, lod);
+          this.chunks.set(key, chunk);
+          this.initQueue.push(chunk);
         } else if (existing.segments !== lod) {
-          // Don't recreate chunks that are spline-pinned; they're already at max res
           if (!this._chunkHasSplineInfluence(chunkX, chunkZ)) {
             existing.dispose();
-            this.chunks.set(key, new TerrainChunk(this, chunkX, chunkZ, lod));
+            const chunk = new TerrainChunk(this, chunkX, chunkZ, lod);
+            this.chunks.set(key, chunk);
+            this.initQueue.push(chunk);
           }
         }
+      }
+    }
+
+    // --- Process Initialization Queue (1 chunk per frame to avoid jank) ---
+    if (this.initQueue.length > 0) {
+      // Prioritize chunks closest to player
+      this.initQueue.sort((a, b) => {
+        const da = playerPosition.distanceToSquared(this.tempVec.set(a.x, 0, a.z));
+        const db = playerPosition.distanceToSquared(this.tempVec.set(b.x, 0, b.z));
+        return da - db;
+      });
+
+      const chunkToInit = this.initQueue.shift();
+      if (chunkToInit) {
+        chunkToInit.init();
       }
     }
 
     this.updateFrameOffset++;
     let chunkIndex = 0;
 
-    // Remove old chunks and update active
     for (const [key, chunk] of this.chunks) {
       if (!active.has(key)) {
         chunk.dispose();
         this.chunks.delete(key);
       } else {
         chunkIndex++;
-        // Always do fast frustum culling
         chunk.quickFrustumCheck(frustum);
         
-        // Stagger expensive density and LOD math (update 1/4th of chunks per frame)
         if (chunk.mesh && chunk.mesh.visible && (chunkIndex % 4 === this.updateFrameOffset % 4)) {
-           chunk.updateLOD(playerPosition, null); // Frustum already checked
+           chunk.updateLOD(playerPosition, null);
         }
       }
     }
   }
-
 }
-
-

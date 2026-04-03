@@ -21,12 +21,15 @@ export class GrassLODManager {
         proxy = new THREE.Mesh(proxyGeo, proxyMat);
         proxy.position.set(data.position[0], data.position[1] + height / 2, data.position[2]);
         proxy.updateMatrixWorld();
-    } else if (data.points && data.points.length > 0) {
-        const proxyGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+    } else if (data.type === "grass_selection" && data.points && data.points.length > 0) {
+        const radius = params.radius || 2;
+        const height = params.height || 1.0;
+        // Use cylinders for selection to match the visual spread area
+        const proxyGeo = new THREE.CylinderGeometry(radius, radius, height, 8);
         proxy = new THREE.InstancedMesh(proxyGeo, proxyMat, data.points.length);
         const dummy = new THREE.Object3D();
         data.points.forEach((p, idx) => {
-            dummy.position.set(p.x, p.y + 0.4, p.z);
+            dummy.position.set(p.x, p.y + height / 2, p.z);
             dummy.updateMatrix();
             proxy.setMatrixAt(idx, dummy.matrix);
         });
@@ -232,7 +235,8 @@ export class GrassLODManager {
                     dummy.rotation.y += Math.random() * Math.PI * 2;
 
                     const s = isVisible ? (0.8 + Math.random() * 0.4) : 0.0001;
-                    dummy.scale.set(s, s, s);
+                    const patchScale = params.scale ? params.scale[0] : 1.0;
+                    dummy.scale.set(s * patchScale, s * patchScale, s * patchScale);
                     dummy.updateMatrix();
 
                     if (offset < totalInstances) {

@@ -31,6 +31,8 @@ const envParams = {
     heightMult: 8.0,
     colorVariation: 1.0, // Used for Grass variation
     dirtIntensity: 1.0,  // Used for Dirt patches
+    forestTexScale: 0.05,
+    mudTexScale: 0.04,
   },
   lowland: {
     baseFreq: 0.003,
@@ -92,6 +94,7 @@ const envParams = {
   performance: {
     enableLOD: true,
     lodFar: 50,
+    physicsDist: 120.0,
     maxInstances: 50000,
   },
   random: {
@@ -280,11 +283,14 @@ const terrainProceduralFolder = gui.addFolder("🌿 Procedural Ground");
 terrainProceduralFolder.add(envParams.terrain, "colorVariation", 0, 2).name("Color Variation");
 terrainProceduralFolder.add(envParams.terrain, "dirtIntensity", 0, 2).name("Dirt Intensity");
 terrainProceduralFolder.add(envParams.terrain, "intensity", 0, 5, 0.1).name("Light Intensity");
+terrainProceduralFolder.add(envParams.terrain, "forestTexScale", 0.001, 0.2, 0.001).name("Forest Tiling");
+terrainProceduralFolder.add(envParams.terrain, "mudTexScale", 0.001, 0.2, 0.001).name("Mud Tiling");
 
 const perfFolder = gui.addFolder("🎮 Performance");
 perfFolder.add(envParams.performance, "enableLOD").name("Enable LOD");
 perfFolder.add(envParams.terrain, "lodDistNear", 20, 200, 10).name("LOD Near");
 perfFolder.add(envParams.performance, "lodFar", 50, 500, 10).name("LOD Far");
+perfFolder.add(envParams.performance, "physicsDist", 20, 500, 10).name("Physics Distance");
 perfFolder.add(envParams.performance, "maxInstances", 1000, 100000, 1000).name("Max Instances");
 
 const randomFolder = gui.addFolder("🎲 Randomness");

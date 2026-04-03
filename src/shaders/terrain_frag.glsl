@@ -16,6 +16,12 @@ uniform float uFogNear;
 uniform float uFogFar;
 uniform vec3 uFogColor;
 
+// ---------------- TEXTURES ----------------
+uniform sampler2D uMudTex;
+uniform sampler2D uForestTex;
+uniform float uForestTexScale;
+uniform float uMudTexScale;
+
 // ---------------- NOISE ----------------
 
 float hash(vec2 p){
@@ -110,9 +116,20 @@ void main(){
     // Remove grass on paths
     grass *= (1.0 - path);
 
-    // ---------------- FINAL BLEND ----------------
+    // ---------------- TEXTURE BLENDING ----------------
+    
+    // Sample Textures
+    vec3 forestTexCol = texture2D(uForestTex, worldXZ * uForestTexScale).rgb;
+    vec3 mudTexCol = texture2D(uMudTex, worldXZ * uMudTexScale).rgb;
 
-    vec3 color = mix(grass, dirtCol, dirtMask);
+    // Multiply textures by the procedural colors to inherit nice lighting/biome tints
+    // Multiplied by 2.0 to prevent severe darkening since multiply naturally dims
+    vec3 finalForest = forestTexCol * grass * 2.0; 
+    vec3 finalMud = mudTexCol * dirtCol * 2.5;
+
+    // Smooth transition
+    float blendVal = smoothstep(0.4, 0.6, dirtMask);
+    vec3 color = mix(finalForest, finalMud, blendVal);
 
     // ---------------- LIGHTING ----------------
 
