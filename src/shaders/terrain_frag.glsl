@@ -17,10 +17,17 @@ uniform float uFogFar;
 uniform vec3 uFogColor;
 
 // ---------------- TEXTURES ----------------
-uniform sampler2D uMudTex;
-uniform sampler2D uForestTex;
-uniform float uForestTexScale;
-uniform float uMudTexScale;
+// We support up to 4 layers mapped to RGBA of uSplatMap
+uniform sampler2D uSplatMap;
+uniform sampler2D uLayer0; 
+uniform sampler2D uLayer1;
+uniform sampler2D uLayer2;
+uniform sampler2D uLayer3;
+
+uniform float uLayer0Scale;
+uniform float uLayer1Scale;
+uniform float uLayer2Scale;
+uniform float uLayer3Scale;
 
 // ---------------- NOISE ----------------
 
@@ -33,25 +40,17 @@ float hash(vec2 p){
 float noise(vec2 p){
     vec2 i = floor(p);
     vec2 f = fract(p);
-
+    vec2 u = f * f * (3.0 - 2.0 * f);
     float a = hash(i);
     float b = hash(i + vec2(1.0, 0.0));
     float c = hash(i + vec2(0.0, 1.0));
     float d = hash(i + vec2(1.0, 1.0));
-
-    vec2 u = f * f * (3.0 - 2.0 * f);
-
-    return mix(a, b, u.x) +
-           (c - a) * u.y * (1.0 - u.x) +
-           (d - b) * u.x * u.y;
+    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }
 
 float fbm(vec2 p){
     float v = 0.0;
     float a = 0.5;
-
-    // OPTIMIZED: Reduced from 5 to 3 octaves. 
-    // This saves 40% of GPU cycles for the heavy procedural terrain shader.
     for(int i = 0; i < 3; i++){
         v += a * noise(p);
         p *= 2.0;
@@ -60,99 +59,57 @@ float fbm(vec2 p){
     return v;
 }
 
-// ---------------- MAIN ----------------
-
 void main(){
-
     vec3 normal = normalize(vNormal);
     vec2 worldXZ = vWorldPos.xz + uGlobalSeed;
 
-    // ---------------- BIOME ----------------
+    // Sample Splat Map (using per-chunk 0-1 UVs)
+    vec4 weights = texture2D(uSplatMap, vUv);
+    
+    // Normalize weights to ensure they sum to 1.0
+    float totalWeight = weights.r + weights.g + weights.b + weights.a;
+    if (totalWeight > 0.0) {
+        weights /= totalWeight;
+    } else {
+        weights = vec4(1.0, 0.0, 0.0, 0.0); // Fallback to Layer 0
+    }
+
+    // ---------------- PROCEDURAL TINTS ----------------
     float biome = fbm(worldXZ * 0.01);
-
-    // ---------------- MUD ROADS ----------------
-    float pathNoise = fbm(worldXZ * 0.02);
-    float path = smoothstep(0.45, 0.55, pathNoise);
-
-    // Make paths more organic
-    path *= smoothstep(-1.0, 1.5, -vElevation);
-
-    // ---------------- DIRT ----------------
-    float dirt = fbm(worldXZ * 0.08);
-    dirt = smoothstep(0.5, 0.7, dirt);
-
-    // Combine dirt + path
-    float dirtMask = max(dirt, path);
-
-    // ---------------- COLORS ----------------
     vec3 deepGreen = vec3(0.08,0.18,0.04);
     vec3 freshGreen = vec3(0.2,0.35,0.08);
-    vec3 dry = vec3(0.45,0.42,0.18);
+    vec3 forestTint = mix(freshGreen, deepGreen, biome);
 
     vec3 mudDark = vec3(0.15,0.1,0.05);
     vec3 mudLight = vec3(0.3,0.22,0.15);
+    vec3 mudTint = mix(mudDark, mudLight, fbm(worldXZ * 0.2));
 
-    vec3 grass = mix(freshGreen, deepGreen, biome);
-    grass = mix(grass, dry, biome * 0.6);
-
-    vec3 dirtCol = mix(mudDark, mudLight, fbm(worldXZ * 0.2));
-
-    // Dead grass transition
-    vec3 deadGrass = vec3(0.35,0.3,0.15);
-    grass = mix(grass, deadGrass, dirtMask * 0.5);
-
-    // ---------------- FOLIAGE DENSITY ----------------
-
-    float cluster = fbm(worldXZ * 0.15);
-    cluster = smoothstep(0.4, 0.8, cluster);
-
-    float blades = noise(worldXZ * vec2(6.0, 24.0));
-    blades = smoothstep(0.5, 0.7, blades);
-
-    float density = cluster * blades;
-
-    grass *= mix(0.7, 1.3, density);
-
-    // Remove grass on paths
-    grass *= (1.0 - path);
-
-    // ---------------- TEXTURE BLENDING ----------------
-    
     // Sample Textures
-    vec3 forestTexCol = texture2D(uForestTex, worldXZ * uForestTexScale).rgb;
-    vec3 mudTexCol = texture2D(uMudTex, worldXZ * uMudTexScale).rgb;
+    vec3 col0 = texture2D(uLayer0, worldXZ * uLayer0Scale).rgb * forestTint * 2.0;
+    vec3 col1 = texture2D(uLayer1, worldXZ * uLayer1Scale).rgb * mudTint * 2.5;
+    vec3 col2 = texture2D(uLayer2, worldXZ * uLayer2Scale).rgb; 
+    vec3 col3 = texture2D(uLayer3, worldXZ * uLayer3Scale).rgb;
 
-    // Multiply textures by the procedural colors to inherit nice lighting/biome tints
-    // Multiplied by 2.0 to prevent severe darkening since multiply naturally dims
-    vec3 finalForest = forestTexCol * grass * 2.0; 
-    vec3 finalMud = mudTexCol * dirtCol * 2.5;
-
-    // Smooth transition
-    float blendVal = smoothstep(0.4, 0.6, dirtMask);
-    vec3 color = mix(finalForest, finalMud, blendVal);
+    // Final Blended Color
+    vec3 color = col0 * weights.r + col1 * weights.g + col2 * weights.b + col3 * weights.a;
 
     // ---------------- LIGHTING ----------------
-
     vec3 lightDir = normalize(uLightDir);
     float diff = max(dot(normal, lightDir), 0.0);
 
     vec3 ambient = vec3(0.25,0.3,0.35) * 0.5;
-
     vec3 finalColor = color * (diff * uLightColor + ambient);
 
-    // Wet mud specular
+    // Mud specular (only on Mud layer influence)
     vec3 viewDir = normalize(uCameraPos - vWorldPos);
     vec3 halfDir = normalize(lightDir + viewDir);
     float spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
-
-    finalColor += spec * 0.15 * path;
+    finalColor += spec * 0.15 * weights.g; 
 
     // ---------------- FOG ----------------
-
     float dist = distance(uCameraPos, vWorldPos);
     float fogFactor = smoothstep(uFogNear, uFogFar, dist);
-
     finalColor = mix(finalColor, uFogColor, fogFactor);
 
     gl_FragColor = vec4(finalColor, 1.0);
-}
+}

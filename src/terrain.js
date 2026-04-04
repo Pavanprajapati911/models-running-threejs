@@ -25,6 +25,43 @@ export class TerrainChunk {
     this.placedGrass = [];
     this.grassLODs = null;
     this.initialized = false;
+    this.isSplatModified = false;
+
+    this.splatRes = 128;
+    this.splatData = new Uint8Array(this.splatRes * this.splatRes * 4);
+    this.splatTexture = new THREE.DataTexture(this.splatData, this.splatRes, this.splatRes, THREE.RGBAFormat);
+    this.splatTexture.minFilter = THREE.LinearFilter;
+    this.splatTexture.magFilter = THREE.LinearFilter;
+    
+    this.generateInitialSplat();
+  }
+
+  generateInitialSplat() {
+    const res = this.splatRes;
+    const chunkSize = this.manager.chunkSize;
+    const halfSize = chunkSize / 2;
+
+    const cx = Math.floor(this.x / chunkSize);
+    const cz = Math.floor(this.z / chunkSize);
+
+    // Check for saved splat data
+    const savedBase64 = this.manager.placedObjectManager ? this.manager.placedObjectManager.getSplatForChunk(cx, cz) : null;
+    if (savedBase64) {
+        const bytes = this.manager.placedObjectManager.base64ToUint8(savedBase64);
+        this.splatData.set(bytes);
+        this.isSplatModified = true;
+        this.splatTexture.needsUpdate = true;
+        return;
+    }
+
+    for (let i = 0; i < res * res; i++) {
+        const i4 = i * 4;
+        this.splatData[i4 + 0] = 255; // Default to Layer 0 (Forest)
+        this.splatData[i4 + 1] = 0;
+        this.splatData[i4 + 2] = 0;
+        this.splatData[i4 + 3] = 0;
+    }
+    this.splatTexture.needsUpdate = true;
   }
 
   init() {
@@ -33,7 +70,23 @@ export class TerrainChunk {
 
     const geometry = this.manager.getGeometry(this.segments).clone();
 
-    this.mesh = new THREE.Mesh(geometry, this.manager.sharedMaterial);
+    // Each chunk needs its own material instance for unique splat map uniform
+    this.material = this.manager.sharedMaterial.clone();
+    this.material.uniforms.uSplatMap = { value: this.splatTexture };
+    
+    // Explicitly pass other layer textures (discovery)
+    const layers = this.manager.terrainLayers;
+    this.material.uniforms.uLayer0 = { value: layers[0]?.tex || this.manager.forestTex };
+    this.material.uniforms.uLayer1 = { value: layers[1]?.tex || this.manager.mudTex };
+    this.material.uniforms.uLayer2 = { value: layers[2]?.tex || this.manager.forestTex };
+    this.material.uniforms.uLayer3 = { value: layers[3]?.tex || this.manager.mudTex };
+
+    this.material.uniforms.uLayer0Scale = { value: this.manager.envParams.terrain.forestTexScale };
+    this.material.uniforms.uLayer1Scale = { value: this.manager.envParams.terrain.mudTexScale };
+    this.material.uniforms.uLayer2Scale = { value: 0.05 };
+    this.material.uniforms.uLayer3Scale = { value: 0.05 };
+
+    this.mesh = new THREE.Mesh(geometry, this.material);
     this.mesh.position.set(this.x, 0, this.z);
 
     this.manager.scene.add(this.mesh);
@@ -90,6 +143,9 @@ export class TerrainChunk {
 
     normals.needsUpdate = true;
     pos.needsUpdate = true;
+    
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
   }
 
   regenerateFromSplines() {
@@ -263,6 +319,14 @@ export class TerrainChunk {
         this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.high, this);
         this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.mid, this);
         this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.low, this);
+    }
+
+    if (this.material) {
+        this.material.dispose();
+    }
+
+    if (this.splatTexture) {
+        this.splatTexture.dispose();
     }
     
     // Remove from init queue if present
@@ -449,6 +513,12 @@ export class ChunkManager {
       uMudTexScale: { value: this.envParams.terrain.mudTexScale }
     };
 
+    // --- Dynamic Texture Layer Discovery ---
+    this.terrainLayers = [
+        { name: 'forest_ground', tex: this.forestTex, scale: this.envParams.terrain.forestTexScale },
+        { name: 'brown_mud', tex: this.mudTex, scale: this.envParams.terrain.mudTexScale }
+    ];
+
     this.sharedMaterial = new THREE.ShaderMaterial({
       uniforms: this.envUniforms,
       vertexShader,
@@ -531,6 +601,11 @@ export class ChunkManager {
     return (n1 * l.baseAmp + n2 * l.hillAmp + n3 * l.detailAmp) * p.heightMult * flatness;
   }
 
+  calculatePathNoise(x, z) {
+    const l = this.envParams.lowland;
+    return this.noise2D(x * l.hillFreq, z * l.hillFreq) * 0.5 + 0.5;
+  }
+
   prefillHeightmap() {
     const half = this.worldSize / 2;
     for (let z = 0; z < this.gridDepth; z++) {
@@ -602,6 +677,30 @@ export class ChunkManager {
 
     this.envUniforms.uInteractionRadius.value = this.envParams.interaction.radius;
     this.envUniforms.uInteractionStrength.value = this.envParams.interaction.strength;
+
+    // Propagate all dynamic uniforms to individual chunk materials
+    for (const chunk of this.chunks.values()) {
+        if (!chunk.material) continue;
+        const u = chunk.material.uniforms;
+        
+        // Vectors
+        if (u.uCameraPos) u.uCameraPos.value.copy(this.camera.position);
+        if (u.uLightDir) u.uLightDir.value.copy(this.envUniforms.uLightDir.value);
+        if (u.uPlayerPos) u.uPlayerPos.value.copy(this.envUniforms.uPlayerPos.value);
+        if (u.uSunPos) u.uSunPos.value.copy(this.envUniforms.uSunPos.value);
+        
+        // Floats and Configs
+        if (u.uTime) u.uTime.value = this.envUniforms.uTime.value;
+        if (u.uColorVariation) u.uColorVariation.value = this.envParams.terrain.colorVariation;
+        if (u.uDirtIntensity) u.uDirtIntensity.value = this.envParams.terrain.dirtIntensity;
+        if (u.uGlobalSeed) u.uGlobalSeed.value = this.envParams.random.seed;
+        if (u.uInteractionRadius) u.uInteractionRadius.value = this.envParams.interaction.radius;
+        if (u.uInteractionStrength) u.uInteractionStrength.value = this.envParams.interaction.strength;
+
+        // Texture Scales
+        if (u.uLayer0Scale) u.uLayer0Scale.value = this.envParams.terrain.forestTexScale;
+        if (u.uLayer1Scale) u.uLayer1Scale.value = this.envParams.terrain.mudTexScale;
+    }
 
     const projScreenMatrix = new THREE.Matrix4();
     projScreenMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);

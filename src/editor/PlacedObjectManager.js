@@ -9,6 +9,7 @@ export class PlacedObjectManager {
     this.chunkManager = chunkManager;
     this.placedObjects = new Map(); // key: "x,z", value: array of objects
     this.placedGrass = new Map();   // key: "x,z", value: array of grass objects
+    this.splatMaps = new Map();     // key: "x,z", value: base64 string
   }
 
   addObject(type, modelIndex, pos, rot, scale) {
@@ -187,9 +188,21 @@ export class PlacedObjectManager {
       allGrass.push(...grassTable);
     }
 
+    // Save splat maps from active chunks that were modified
+    for (const chunk of this.chunkManager.chunks.values()) {
+        if (chunk.isSplatModified) {
+            const key = `${Math.floor(chunk.x / this.chunkManager.chunkSize)},${Math.floor(chunk.z / this.chunkManager.chunkSize)}`;
+            this.splatMaps.set(key, this._uint8ToBase64(chunk.splatData));
+        }
+    }
+
+    const splatExport = {};
+    this.splatMaps.forEach((val, key) => splatExport[key] = val);
+
     const data = {
       objects: allObjects,
       grass: allGrass,
+      splats: splatExport,
       // Pass splines directly (TerrainSplineManager.exportJSON now handles the wrapping)
       terrain: this.terrainSplineManager ? this.terrainSplineManager.exportJSON() : null
     };
@@ -262,6 +275,14 @@ export class PlacedObjectManager {
         this.terrainSplineManager.loadJSON(terrainData);
       }
 
+      // Load splat maps
+      this.splatMaps.clear();
+      if (data.splats) {
+          for (const key in data.splats) {
+              this.splatMaps.set(key, data.splats[key]);
+          }
+      }
+
       console.log(`📥 Loaded: ${data.objects?.length || 0} objects, ${data.grass?.length || 0} grass patches, ${data.splines?.length || 0} splines`);
 
       // Refresh chunks
@@ -305,5 +326,24 @@ export class PlacedObjectManager {
     }
 
     return false;
+  }
+
+  _uint8ToBase64(uint8) {
+    let binary = "";
+    const len = uint8.byteLength;
+    for (let i = 0; i < len; i++) binary += String.fromCharCode(uint8[i]);
+    return window.btoa(binary);
+  }
+
+  base64ToUint8(base64) {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+    return bytes;
+  }
+
+  getSplatForChunk(x, z) {
+    return this.splatMaps.get(`${x},${z}`);
   }
 }
