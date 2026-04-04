@@ -12,6 +12,7 @@ import { ChunkManager } from "./terrain.js";
 import { createNoise2D } from "simplex-noise";
 import { PlacedObjectManager } from "./editor/PlacedObjectManager.js";
 import { TerrainSplineManager } from "./editor/TerrainSplineManager.js";
+import { TerrainNoiseBrushManager } from "./editor/TerrainNoiseBrushManager.js";
 import { EditorController } from "./editor/EditorController.js";
 import { ModeController } from "./core/ModeController.js";
 import { SkySystem } from "./environment/SkySystem.js";
@@ -28,11 +29,24 @@ const envParams = {
     renderDist: 4, // 3x3 or 5x5 chunks
     lodDistNear: 20.0,
     lodDistMid: 120.0,
-    heightMult: 8.0,
     colorVariation: 1.0, // Used for Grass variation
     dirtIntensity: 1.0,  // Used for Dirt patches
     forestTexScale: 0.05,
     mudTexScale: 0.04,
+
+    // micro terrain
+    heightMult: 1.0,
+    baseAmp: 0.0,
+    erosionAmp: 0.015,
+    midAmp: 0.03,
+    detailAmp: 0.015,
+    baseFreq: 0.0,
+    erosionFreq: 8.0,
+    midFreq: 6.0,
+    detailFreq: 12.0,
+    warpFreq: 0.2,
+    warpStrength: 0.5,
+    microHeight: 1.0
   },
   lowland: {
     baseFreq: 0.003,
@@ -250,6 +264,7 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
 const placedObjectManager = new PlacedObjectManager(scene, { chunkSize: envParams.terrain.chunkSize, chunks: new Map() }); // Temp placeholder
 const terrainSplineManager = new TerrainSplineManager(scene);
+const terrainNoiseBrushManager = new TerrainNoiseBrushManager();
 
 const chunkManager = new ChunkManager(
   scene, world, camera,
@@ -259,6 +274,9 @@ const chunkManager = new ChunkManager(
   terrainSplineManager
 );
 terrainSplineManager.setChunkManager(chunkManager);
+terrainNoiseBrushManager.setChunkManager(chunkManager);
+chunkManager.noiseBrushManager = terrainNoiseBrushManager;
+
 placedObjectManager.chunkManager = chunkManager; // Fix circular ref
 placedObjectManager.terrainSplineManager = terrainSplineManager;
 const terrain = chunkManager; // alias for compatibility if needed
@@ -266,7 +284,7 @@ const terrain = chunkManager; // alias for compatibility if needed
 const raycaster = new THREE.Raycaster();
 const editorController = new EditorController(
   scene, camera, raycaster,
-  chunkManager, placedObjectManager, terrainSplineManager,
+  chunkManager, placedObjectManager, terrainSplineManager, terrainNoiseBrushManager,
   gui
 );
 const modeController = new ModeController({ envParams, character: null, editorController });
@@ -285,6 +303,26 @@ terrainProceduralFolder.add(envParams.terrain, "dirtIntensity", 0, 2).name("Dirt
 terrainProceduralFolder.add(envParams.terrain, "intensity", 0, 5, 0.1).name("Light Intensity");
 terrainProceduralFolder.add(envParams.terrain, "forestTexScale", 0.001, 0.2, 0.001).name("Forest Tiling");
 terrainProceduralFolder.add(envParams.terrain, "mudTexScale", 0.001, 0.2, 0.001).name("Mud Tiling");
+
+const microFolder = gui.addFolder('🌍 Terrain Micro');
+const tp = envParams.terrain;
+const rebuild = () => { chunkManager.refreshChunks(); };
+
+microFolder.add(tp, 'baseAmp', 0.0, 0.2, 0.001).onChange(rebuild);
+microFolder.add(tp, 'erosionAmp', 0.0, 0.1, 0.001).onChange(rebuild);
+microFolder.add(tp, 'midAmp', 0.0, 0.1, 0.001).onChange(rebuild);
+microFolder.add(tp, 'detailAmp', 0.0, 0.05, 0.001).onChange(rebuild);
+
+microFolder.add(tp, 'baseFreq', 0.0, 0.1, 0.001).onChange(rebuild);
+microFolder.add(tp, 'erosionFreq', 0.1, 20.0, 0.1).onChange(rebuild);
+microFolder.add(tp, 'midFreq', 0.1, 20.0, 0.1).onChange(rebuild);
+microFolder.add(tp, 'detailFreq', 0.1, 30.0, 0.1).onChange(rebuild);
+
+microFolder.add(tp, 'warpFreq', 0.01, 1.0, 0.01).onChange(rebuild);
+microFolder.add(tp, 'warpStrength', 0.0, 2.0, 0.01).onChange(rebuild);
+
+microFolder.add(tp, 'microHeight', 0.0, 2.0, 0.01).onChange(rebuild);
+microFolder.add(tp, 'heightMult', 0.0, 5.0, 0.1).onChange(rebuild);
 
 const perfFolder = gui.addFolder("🎮 Performance");
 perfFolder.add(envParams.performance, "enableLOD").name("Enable LOD");
@@ -555,21 +593,21 @@ function animate() {
   timeSinceScaleCheck += dt;
 
   if (timeSinceScaleCheck > 2.0) {
-      if (fpsAverage < 45) {
-          const currentRatio = renderer.getPixelRatio();
-          if (currentRatio > 0.8) {
-              renderer.setPixelRatio(Math.max(0.75, currentRatio - 0.25));
-              console.log(`[Performance] Dropping Pixel Ratio to ${renderer.getPixelRatio()} (FPS: ${Math.round(fpsAverage)})`);
-          }
-      } else if (fpsAverage > 55) {
-          const currentRatio = renderer.getPixelRatio();
-          const targetRatio = Math.min(window.devicePixelRatio, 1.5);
-          if (currentRatio < targetRatio) {
-              renderer.setPixelRatio(Math.min(targetRatio, currentRatio + 0.25));
-              console.log(`[Performance] Restoring Pixel Ratio to ${renderer.getPixelRatio()} (FPS: ${Math.round(fpsAverage)})`);
-          }
+    if (fpsAverage < 45) {
+      const currentRatio = renderer.getPixelRatio();
+      if (currentRatio > 0.8) {
+        renderer.setPixelRatio(Math.max(0.75, currentRatio - 0.25));
+        console.log(`[Performance] Dropping Pixel Ratio to ${renderer.getPixelRatio()} (FPS: ${Math.round(fpsAverage)})`);
       }
-      timeSinceScaleCheck = 0;
+    } else if (fpsAverage > 55) {
+      const currentRatio = renderer.getPixelRatio();
+      const targetRatio = Math.min(window.devicePixelRatio, 1.5);
+      if (currentRatio < targetRatio) {
+        renderer.setPixelRatio(Math.min(targetRatio, currentRatio + 0.25));
+        console.log(`[Performance] Restoring Pixel Ratio to ${renderer.getPixelRatio()} (FPS: ${Math.round(fpsAverage)})`);
+      }
+    }
+    timeSinceScaleCheck = 0;
   }
 
   if (localChar && localChar.model) {

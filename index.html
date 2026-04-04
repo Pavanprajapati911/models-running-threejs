@@ -47,7 +47,15 @@
             <!-- Status line -->
             <div id="terrain-status" class="terrain-status">Click spline / C to draw / 1-2 switch mode</div>
 
-            <!-- Spline type buttons -->
+            <!-- Terrain Submode Toggle -->
+            <div class="terrain-submode-row">
+                <button id="btn-submode-spline" class="type-btn active">🛤️ Splines</button>
+                <button id="btn-submode-noise" class="type-btn">🖌️ Noise Brush</button>
+            </div>
+
+            <!-- ── SPLINE TOOLS (Default) ── -->
+            <div id="spline-tools-panel">
+                <!-- Spline type buttons -->
             <div class="terrain-section-label">SPLINE TYPE</div>
             <div class="terrain-type-row">
                 <button id="btn-ridge" class="type-btn active" title="R key">⛰️ Ridge</button>
@@ -81,6 +89,37 @@
                 <div class="key-row">Drag control spheres to move points</div>
                 <div class="key-row"><kbd>Ctrl+Z</kbd> Undo last action</div>
             </div>
+            </div>
+
+            <!-- ── NOISE BRUSH TOOLS ── -->
+            <div id="noise-brush-panel" style="display:none; margin-top: 10px;">
+                <div class="terrain-section-label">BRUSH MODE</div>
+                <div class="terrain-type-row">
+                    <button id="btn-noise-add" class="type-btn active" title="Paint intensity">Add</button>
+                    <button id="btn-noise-remove" class="type-btn" title="Erase intensity">Remove</button>
+                    <button id="btn-noise-smooth" class="type-btn" title="Smooth intensity">Smooth</button>
+                </div>
+                <!-- Width / Strength display -->
+                <div class="terrain-params">
+                    <div class="param-row">
+                        <span class="param-label">Size (Shift+Scroll)</span>
+                        <span class="param-ctrl"><kbd>[</kbd> <span id="noise-size-val">5.0</span> <kbd>]</kbd></span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-label">Strength</span>
+                        <span class="param-ctrl"><kbd>-</kbd> <span id="noise-strength-val">0.5</span> <kbd>+</kbd></span>
+                    </div>
+                    <div class="param-row">
+                        <span class="param-label">Falloff</span>
+                        <span class="param-ctrl"><kbd>,</kbd> <span id="noise-falloff-val">0.5</span> <kbd>.</kbd></span>
+                    </div>
+                </div>
+                <div class="terrain-keys" style="margin-top: 10px;">
+                    <div class="key-row">Click & Drag to paint region</div>
+                    <div class="key-row">Click existing region to select</div>
+                    <div class="key-row"><kbd>Del</kbd> Delete selected region</div>
+                </div>
+            </div>
 
             <!-- Export terrain-only -->
             <div class="editor-btn-row" style="margin-top:8px;">
@@ -97,6 +136,38 @@
         </div>
 
         <div id="editor-hint">Press P to toggle Editor / Game Mode</div>
+    </div>
+
+    <!-- ══ REGION EDIT PANEL (Left Side) ════════════════════════════════════ -->
+    <div id="region-edit-panel" style="display:none; position:absolute; z-index:1000; left:20px; top:60px; width:220px; background:rgba(20,20,20,0.9); padding:15px; border-radius:8px; border:1px solid #444; color:#ddd; font-family:sans-serif;">
+        <h3 style="margin-top:0; color:#ffcc77; font-size:14px;">🖌️ REGION EDIT</h3>
+        <p style="font-size:11px; color:#aaa; margin-bottom:10px;">Changes apply instantly</p>
+        
+        <div class="param-row" style="display:flex; justify-content:space-between; margin-bottom:5px;">
+            <span>Mode</span>
+            <select id="region-edit-mode" style="background:#333; color:white; border:none; padding:2px;">
+                <option value="add">Add</option>
+                <option value="remove">Remove</option>
+                <option value="smooth">Smooth</option>
+            </select>
+        </div>
+        <div class="param-row" style="display:flex; justify-content:space-between; margin-bottom:5px;">
+            <span>Strength</span>
+            <input type="range" id="region-edit-strength" min="0.0" max="2.0" step="0.1" value="0.5" style="width:80px;">
+        </div>
+        <div class="param-row" style="display:flex; justify-content:space-between; margin-bottom:5px;">
+            <span>Falloff</span>
+            <input type="range" id="region-edit-falloff" min="0.1" max="2.0" step="0.1" value="0.5" style="width:80px;">
+        </div>
+
+        <div style="margin-top: 15px; border-top: 1px solid #444; padding-top: 10px;">
+            <p style="font-size:11px; color:#aaa; margin-bottom:5px; text-transform:uppercase;">Local Terrain Micro</p>
+            <div id="region-micro-params-container" style="max-height: 250px; overflow-y: auto; padding-right: 5px;">
+                <!-- Dynamically populated by EditorController.js -->
+            </div>
+        </div>
+
+        <button id="btn-region-delete" style="width:100%; margin-top:10px; background:#aa3333; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer;">Delete Region</button>
     </div>
 
     <canvas class="webgl"></canvas>

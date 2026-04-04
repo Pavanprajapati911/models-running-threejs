@@ -100,11 +100,7 @@ void main(){
     vec3 ambient = vec3(0.25,0.3,0.35) * 0.5;
     vec3 finalColor = color * (diff * uLightColor + ambient);
 
-    // Mud specular (only on Mud layer influence)
-    vec3 viewDir = normalize(uCameraPos - vWorldPos);
-    vec3 halfDir = normalize(lightDir + viewDir);
-    float spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
-    finalColor += spec * 0.15 * weights.g; 
+    // Specular highlight removed as it caused a visible artifact following the camera
 
     // ---------------- FOG ----------------
     float dist = distance(uCameraPos, vWorldPos);

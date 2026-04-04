@@ -183,6 +183,29 @@
         4,
         4
       ]
+    },
+    {
+      "type": "grass",
+      "modelIndex": 0,
+      "chunk": [
+        9,
+        1
+      ],
+      "position": [
+        492.51170061251065,
+        7.452495823197271,
+        79.43594193587676
+      ],
+      "rotation": [
+        0,
+        0.14999999999999994,
+        0
+      ],
+      "scale": [
+        4,
+        4,
+        4
+      ]
     }
   ],
   "grass": [
@@ -572,13 +595,14 @@
             }
           ],
           [
-            442.1424330649648,
-            115.7276666316996,
+            471.7949773792679,
+            86.70040157532789,
             {
-              "radius": 2,
+              "radius": 50,
               "strength": 5,
               "falloff": 2,
-              "visualSize": 2
+              "visualSize": 2,
+              "height": 50
             }
           ]
         ],
@@ -594,10 +618,10 @@
         "edgeSmoothness": 1,
         "flattenStrength": 0.9,
         "bounds": {
-          "minX": 344.5906688655398,
-          "maxX": 480.14243306496496,
-          "minZ": 32.17867391900468,
-          "maxZ": 157.7660923870261
+          "minX": 329.3968550269904,
+          "maxX": 522.794977379268,
+          "minZ": 19.17867391900468,
+          "maxZ": 167.76469252772097
         },
         "baseHeight": -0.13601651640322698
       },
@@ -897,6 +921,401 @@
           "maxZ": 259.0595187662425
         },
         "baseHeight": -0.05161468771049061
+      },
+      {
+        "type": "ridge",
+        "points": [
+          [
+            420.64434341085445,
+            -57.7103598316689,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            456.56553170744667,
+            -50.07114776092464,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ]
+        ],
+        "width": 2,
+        "strength": 5,
+        "falloff": 2,
+        "id": "fd0c0a41-38b1-4d2a-ac1f-22c60fb50d14",
+        "noiseStrength": 0.15,
+        "noiseScale": 0.1,
+        "peakSharpness": 2,
+        "plateauHeightOffset": 0,
+        "roadWidthFactor": 0.5,
+        "edgeSmoothness": 1,
+        "flattenStrength": 0.9,
+        "bounds": {
+          "minX": 416.8715455761823,
+          "maxX": 459.56553170744667,
+          "minZ": -60.87470758370115,
+          "maxZ": -47.07114776092464
+        },
+        "baseHeight": 0.09994099707761889
+      },
+      {
+        "type": "ridge",
+        "points": [
+          [
+            559.7990017878899,
+            31.547196589805324,
+            {
+              "radius": 50,
+              "strength": 20,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 50
+            }
+          ],
+          [
+            563.6766569532524,
+            -43.566921523141076,
+            {
+              "radius": 50,
+              "strength": 20,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 50
+            }
+          ],
+          [
+            530.1675104811563,
+            -21.548940393454902,
+            {
+              "radius": 26.1,
+              "strength": 20,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 50
+            }
+          ],
+          [
+            499.559769933884,
+            23.236855526284394,
+            {
+              "radius": 50,
+              "strength": -20,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 50
+            }
+          ]
+        ],
+        "width": 44,
+        "strength": 5,
+        "falloff": 2,
+        "id": "f6f1ea24-28e6-4c28-8f2c-670bbabdad00",
+        "noiseStrength": 0.15,
+        "noiseScale": 0.1,
+        "peakSharpness": 2,
+        "plateauHeightOffset": 0,
+        "roadWidthFactor": 0.5,
+        "edgeSmoothness": 1,
+        "flattenStrength": 0.9,
+        "bounds": {
+          "minX": 448.5597699338839,
+          "maxX": 616.3360026520455,
+          "minZ": -96.78464628708014,
+          "maxZ": 82.54719658980532
+        },
+        "baseHeight": 0.10017808053459577
+      },
+      {
+        "type": "ridge",
+        "points": [
+          [
+            586.5517195489219,
+            -170.96962414608478,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            597.5878230000266,
+            -162.32261851317799,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            620.6081373020653,
+            -158.78178768272429,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ]
+        ],
+        "width": 2,
+        "strength": 5,
+        "falloff": 2,
+        "id": "86fd94a4-04a3-44f9-afc0-57cc2e23e36e",
+        "noiseStrength": 0.15,
+        "noiseScale": 0.1,
+        "peakSharpness": 2,
+        "plateauHeightOffset": 0,
+        "roadWidthFactor": 0.5,
+        "edgeSmoothness": 1,
+        "flattenStrength": 0.9,
+        "bounds": {
+          "minX": 583.5517195489219,
+          "maxX": 623.6081373020656,
+          "minZ": -173.96962414608478,
+          "maxZ": -155.7817876827243
+        },
+        "baseHeight": -0.031219009433231772
+      },
+      {
+        "type": "ridge",
+        "points": [
+          [
+            569.2694871385645,
+            6.431822922709227,
+            {
+              "radius": 26.8,
+              "strength": 20,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 50
+            }
+          ],
+          [
+            530.9811768211641,
+            35.14400886683602,
+            {
+              "radius": 50,
+              "strength": 16.1,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 50
+            }
+          ],
+          [
+            490.8157095384617,
+            0.13361772388863713,
+            {
+              "radius": 50,
+              "strength": 5,
+              "falloff": 0.5,
+              "visualSize": 2
+            }
+          ],
+          [
+            515.660272508945,
+            -42.873891267823396,
+            {
+              "radius": 50,
+              "strength": 14.3,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 50
+            }
+          ],
+          [
+            569.9962565365842,
+            -11.952696724875631,
+            {
+              "radius": 24.7,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 50
+            }
+          ],
+          [
+            595.4043450936229,
+            -10.433225066341898,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            596.8125890219063,
+            -37.84945063715826,
+            {
+              "radius": 34.1,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 36.6
+            }
+          ],
+          [
+            569.6703605581752,
+            -67.68070369796048,
+            {
+              "radius": 32.7,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 44.9
+            }
+          ],
+          [
+            540.703745391171,
+            -79.3477297802651,
+            {
+              "radius": 40,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 50
+            }
+          ],
+          [
+            509.6265093598545,
+            -83.16248418173957,
+            {
+              "radius": 50,
+              "strength": 20,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 50
+            }
+          ],
+          [
+            484.30129366285104,
+            -73.52472384722493,
+            {
+              "radius": 33.4,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2,
+              "height": 50
+            }
+          ],
+          [
+            466.18129334813455,
+            -36.01602255749333,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            459.16644380350556,
+            8.41047793667343,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            467.062624399744,
+            54.42736677497862,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            507.28939699809985,
+            74.53487008691395,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            543.3267008769321,
+            88.1448916153651,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            580.4235245909322,
+            74.365351294307,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            591.3755495099897,
+            55.03577800397517,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            602.2484982434277,
+            20.87585857906359,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ],
+          [
+            600.4985537796496,
+            -16.016119039207123,
+            {
+              "radius": 2,
+              "strength": 5,
+              "falloff": 2,
+              "visualSize": 2
+            }
+          ]
+        ],
+        "width": 2,
+        "strength": 5,
+        "falloff": 2,
+        "id": "ce5f652a-b218-4d72-be53-6b8d2fd2ccb1",
+        "noiseStrength": 0.15,
+        "noiseScale": 0.1,
+        "peakSharpness": 2,
+        "plateauHeightOffset": 0,
+        "roadWidthFactor": 0.5,
+        "edgeSmoothness": 1,
+        "flattenStrength": 0.9,
+        "bounds": {
+          "minX": 408.16159506764035,
+          "maxX": 653.7034295454063,
+          "minZ": -134.32470667566275,
+          "maxZ": 139.14159348663003
+        },
+        "baseHeight": 0.057539656038977934
       }
     ]
   }

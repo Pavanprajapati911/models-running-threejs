@@ -101,7 +101,9 @@ export class TerrainSplineManager {
     const cx = (wx + half) / this.cacheResolution;
     const cz = (wz + half) / this.cacheResolution;
 
-    if (cx < 0 || cx >= this.cacheWidth - 1 || cz < 0 || cz >= this.cacheDepth - 1) return 0;
+    if (cx < 0 || cx >= this.cacheWidth - 1 || cz < 0 || cz >= this.cacheDepth - 1) {
+      return this.getSplineEffect(wx, wz);
+    }
 
     const x0 = cx | 0, z0 = cz | 0;
     const fx = cx - x0, fz = cz - z0;

@@ -32,7 +32,7 @@ export class TerrainChunk {
     this.splatTexture = new THREE.DataTexture(this.splatData, this.splatRes, this.splatRes, THREE.RGBAFormat);
     this.splatTexture.minFilter = THREE.LinearFilter;
     this.splatTexture.magFilter = THREE.LinearFilter;
-    
+
     this.generateInitialSplat();
   }
 
@@ -47,19 +47,19 @@ export class TerrainChunk {
     // Check for saved splat data
     const savedBase64 = this.manager.placedObjectManager ? this.manager.placedObjectManager.getSplatForChunk(cx, cz) : null;
     if (savedBase64) {
-        const bytes = this.manager.placedObjectManager.base64ToUint8(savedBase64);
-        this.splatData.set(bytes);
-        this.isSplatModified = true;
-        this.splatTexture.needsUpdate = true;
-        return;
+      const bytes = this.manager.placedObjectManager.base64ToUint8(savedBase64);
+      this.splatData.set(bytes);
+      this.isSplatModified = true;
+      this.splatTexture.needsUpdate = true;
+      return;
     }
 
     for (let i = 0; i < res * res; i++) {
-        const i4 = i * 4;
-        this.splatData[i4 + 0] = 255; // Default to Layer 0 (Forest)
-        this.splatData[i4 + 1] = 0;
-        this.splatData[i4 + 2] = 0;
-        this.splatData[i4 + 3] = 0;
+      const i4 = i * 4;
+      this.splatData[i4 + 0] = 255; // Default to Layer 0 (Forest)
+      this.splatData[i4 + 1] = 0;
+      this.splatData[i4 + 2] = 0;
+      this.splatData[i4 + 3] = 0;
     }
     this.splatTexture.needsUpdate = true;
   }
@@ -73,7 +73,7 @@ export class TerrainChunk {
     // Each chunk needs its own material instance for unique splat map uniform
     this.material = this.manager.sharedMaterial.clone();
     this.material.uniforms.uSplatMap = { value: this.splatTexture };
-    
+
     // Explicitly pass other layer textures (discovery)
     const layers = this.manager.terrainLayers;
     this.material.uniforms.uLayer0 = { value: layers[0]?.tex || this.manager.forestTex };
@@ -143,7 +143,7 @@ export class TerrainChunk {
 
     normals.needsUpdate = true;
     pos.needsUpdate = true;
-    
+
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
   }
@@ -227,8 +227,8 @@ export class TerrainChunk {
     if (!this.manager.vegManager) return;
     const models = this.manager.vegManager.models.get(obj.type) || this.manager.vegManager.models.get("jungleTrees");
     if (!models || models.length === 0) {
-        console.error(`[TerrainChunk] No models found for category: ${obj.type}`);
-        return;
+      console.error(`[TerrainChunk] No models found for category: ${obj.type}`);
+      return;
     }
 
     const idx = Math.min(obj.modelIndex ?? 0, models.length - 1);
@@ -269,9 +269,9 @@ export class TerrainChunk {
 
   spawnGrassPatch(data) {
     if (!this.manager.grassLODManager) return;
-    
+
     const proxyMesh = this.manager.grassLODManager.createProxy(data);
-    
+
     this.placedGrass.push({ data: data, mesh: proxyMesh });
     this.manager.scene.add(proxyMesh);
 
@@ -283,7 +283,7 @@ export class TerrainChunk {
     if (idx !== -1) {
       this.manager.scene.remove(this.placedGrass[idx].mesh);
       this.placedGrass.splice(idx, 1);
-      
+
       if (this.manager.grassLODManager) {
         this.manager.grassLODManager.rebuildChunkLODs(this);
       }
@@ -316,19 +316,19 @@ export class TerrainChunk {
     });
 
     if (this.manager.grassLODManager) {
-        this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.high, this);
-        this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.mid, this);
-        this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.low, this);
+      this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.high, this);
+      this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.mid, this);
+      this.manager.grassLODManager._disposeLODGroup(this.grassLODs?.low, this);
     }
 
     if (this.material) {
-        this.material.dispose();
+      this.material.dispose();
     }
 
     if (this.splatTexture) {
-        this.splatTexture.dispose();
+      this.splatTexture.dispose();
     }
-    
+
     // Remove from init queue if present
     const qIdx = this.manager.initQueue.indexOf(this);
     if (qIdx !== -1) this.manager.initQueue.splice(qIdx, 1);
@@ -360,9 +360,9 @@ export class TerrainChunk {
         this.vegetation.forEach(v => v.visible = false);
         this.placedObjects.forEach(po => po.mesh.visible = false);
         if (this.grassLODs) {
-            this.grassLODs.high.visible = false;
-            this.grassLODs.mid.visible = false;
-            this.grassLODs.low.visible = false;
+          this.grassLODs.high.visible = false;
+          this.grassLODs.mid.visible = false;
+          this.grassLODs.low.visible = false;
         }
         return;
       }
@@ -374,26 +374,26 @@ export class TerrainChunk {
     const p = this.manager.envParams;
 
     if (this.grassLODs && this.mesh.visible) {
-        this.grassLODs.high.visible = false;
-        this.grassLODs.mid.visible = false;
-        this.grassLODs.low.visible = false;
+      this.grassLODs.high.visible = false;
+      this.grassLODs.mid.visible = false;
+      this.grassLODs.low.visible = false;
 
-        const gNear = 60;
-        const gMid = 110;
-        const gFar = 150;
+      const gNear = 60;
+      const gMid = 110;
+      const gFar = 150;
 
-        if (dist <= gNear) {
-            this.grassLODs.high.visible = true;
-        } else if (dist <= gMid) {
-            this.grassLODs.mid.visible = true;
-        } else if (dist <= gFar) {
-            this.grassLODs.low.visible = true;
-        }
+      if (dist <= gNear) {
+        this.grassLODs.high.visible = true;
+      } else if (dist <= gMid) {
+        this.grassLODs.mid.visible = true;
+      } else if (dist <= gFar) {
+        this.grassLODs.low.visible = true;
+      }
     }
 
     // Dynamic physics based on distance
     if (this.initialized) {
-        this.tryCreatePhysics();
+      this.tryCreatePhysics();
     }
 
     if (!p.performance.enableLOD) {
@@ -432,7 +432,7 @@ export class TerrainChunk {
 
   quickFrustumCheck(frustum) {
     if (!this.mesh) return;
-    
+
     if (frustum) {
       const sphereRadius = (this.manager.chunkSize * 0.5) * 1.414 + 15;
       const sphere = new THREE.Sphere(this.manager.tempVec.set(this.x, 0, this.z), sphereRadius);
@@ -441,9 +441,9 @@ export class TerrainChunk {
         this.vegetation.forEach(v => v.visible = false);
         this.placedObjects.forEach(po => po.mesh.visible = false);
         if (this.grassLODs) {
-            this.grassLODs.high.visible = false;
-            this.grassLODs.mid.visible = false;
-            this.grassLODs.low.visible = false;
+          this.grassLODs.high.visible = false;
+          this.grassLODs.mid.visible = false;
+          this.grassLODs.low.visible = false;
         }
       } else {
         this.mesh.visible = true;
@@ -463,6 +463,7 @@ export class ChunkManager {
     this.envParams = envParams;
     this.placedObjectManager = placedObjectManager;
     this.terrainSplineManager = terrainSplineManager;
+    this.noiseBrushManager = null;
 
     this.chunkSize = envParams.terrain.chunkSize;
     this.chunks = new Map();
@@ -470,13 +471,13 @@ export class ChunkManager {
 
     this.tempVec = new THREE.Vector3();
     this.geometryCache = {};
-    
+
     const textureLoader = new THREE.TextureLoader();
     this.mudTex = textureLoader.load('/textures/brown_mud/brown_mud_03_diff_1k.jpg');
     this.mudTex.wrapS = THREE.RepeatWrapping;
     this.mudTex.wrapT = THREE.RepeatWrapping;
     this.mudTex.colorSpace = THREE.SRGBColorSpace;
-    
+
     this.forestTex = textureLoader.load('/textures/forest_ground/forrest_ground_01_diff_1k.jpg');
     this.forestTex.wrapS = THREE.RepeatWrapping;
     this.forestTex.wrapT = THREE.RepeatWrapping;
@@ -515,8 +516,8 @@ export class ChunkManager {
 
     // --- Dynamic Texture Layer Discovery ---
     this.terrainLayers = [
-        { name: 'forest_ground', tex: this.forestTex, scale: this.envParams.terrain.forestTexScale },
-        { name: 'brown_mud', tex: this.mudTex, scale: this.envParams.terrain.mudTexScale }
+      { name: 'forest_ground', tex: this.forestTex, scale: this.envParams.terrain.forestTexScale },
+      { name: 'brown_mud', tex: this.mudTex, scale: this.envParams.terrain.mudTexScale }
     ];
 
     this.sharedMaterial = new THREE.ShaderMaterial({
@@ -589,17 +590,36 @@ export class ChunkManager {
   }
 
   calculateHeight(x, z) {
-    const p = this.envParams.terrain;
-    const l = this.envParams.lowland;
+    let p = this.envParams.terrain;
+    
+    if (this.noiseBrushManager) {
+        p = this.noiseBrushManager.getBlendedMicroParams(x, z, p);
+    }
 
-    const n1 = this.noise2D(x * l.baseFreq, z * l.baseFreq);
-    const n2 = this.noise2D(x * l.hillFreq, z * l.hillFreq);
-    const n3 = this.noise2D(x * l.detailFreq, z * l.detailFreq);
+    const flowX = this.noise2D(x * p.warpFreq, z * p.warpFreq);
+    const flowZ = this.noise2D(x * p.warpFreq + 10.0, z * p.warpFreq + 10.0);
 
-    const flatness = this.envParams.terrain.flatness ?? 0.02;
+    const warpedX = x + flowX * p.warpStrength;
+    const warpedZ = z + flowZ * p.warpStrength;
 
-    return (n1 * l.baseAmp + n2 * l.hillAmp + n3 * l.detailAmp) * p.heightMult * flatness;
+    const base = this.noise2D(x * p.baseFreq, z * p.baseFreq) * p.baseAmp;
+
+    const erosion = this.noise2D(warpedX * p.erosionFreq, warpedZ * p.erosionFreq) * p.erosionAmp;
+
+    const mid = this.noise2D(x * p.midFreq, z * p.midFreq) * p.midAmp;
+
+    const detail = this.noise2D(x * p.detailFreq, z * p.detailFreq) * p.detailAmp;
+
+    let height = (base + erosion + mid + detail) * p.microHeight * p.heightMult;
+
+    if (this.noiseBrushManager) {
+        let mask = this.noiseBrushManager.getMaskAt(x, z);
+        height *= mask;
+    }
+
+    return height;
   }
+
 
   calculatePathNoise(x, z) {
     const l = this.envParams.lowland;
@@ -630,7 +650,7 @@ export class ChunkManager {
       const b = spline.bounds;
       if (!b) continue;
       if (cMaxX >= b.minX && cMinX <= b.maxX &&
-          cMaxZ >= b.minZ && cMinZ <= b.maxZ) {
+        cMaxZ >= b.minZ && cMinZ <= b.maxZ) {
         return true;
       }
     }
@@ -680,26 +700,26 @@ export class ChunkManager {
 
     // Propagate all dynamic uniforms to individual chunk materials
     for (const chunk of this.chunks.values()) {
-        if (!chunk.material) continue;
-        const u = chunk.material.uniforms;
-        
-        // Vectors
-        if (u.uCameraPos) u.uCameraPos.value.copy(this.camera.position);
-        if (u.uLightDir) u.uLightDir.value.copy(this.envUniforms.uLightDir.value);
-        if (u.uPlayerPos) u.uPlayerPos.value.copy(this.envUniforms.uPlayerPos.value);
-        if (u.uSunPos) u.uSunPos.value.copy(this.envUniforms.uSunPos.value);
-        
-        // Floats and Configs
-        if (u.uTime) u.uTime.value = this.envUniforms.uTime.value;
-        if (u.uColorVariation) u.uColorVariation.value = this.envParams.terrain.colorVariation;
-        if (u.uDirtIntensity) u.uDirtIntensity.value = this.envParams.terrain.dirtIntensity;
-        if (u.uGlobalSeed) u.uGlobalSeed.value = this.envParams.random.seed;
-        if (u.uInteractionRadius) u.uInteractionRadius.value = this.envParams.interaction.radius;
-        if (u.uInteractionStrength) u.uInteractionStrength.value = this.envParams.interaction.strength;
+      if (!chunk.material) continue;
+      const u = chunk.material.uniforms;
 
-        // Texture Scales
-        if (u.uLayer0Scale) u.uLayer0Scale.value = this.envParams.terrain.forestTexScale;
-        if (u.uLayer1Scale) u.uLayer1Scale.value = this.envParams.terrain.mudTexScale;
+      // Vectors
+      if (u.uCameraPos) u.uCameraPos.value.copy(this.camera.position);
+      if (u.uLightDir) u.uLightDir.value.copy(this.envUniforms.uLightDir.value);
+      if (u.uPlayerPos) u.uPlayerPos.value.copy(this.envUniforms.uPlayerPos.value);
+      if (u.uSunPos) u.uSunPos.value.copy(this.envUniforms.uSunPos.value);
+
+      // Floats and Configs
+      if (u.uTime) u.uTime.value = this.envUniforms.uTime.value;
+      if (u.uColorVariation) u.uColorVariation.value = this.envParams.terrain.colorVariation;
+      if (u.uDirtIntensity) u.uDirtIntensity.value = this.envParams.terrain.dirtIntensity;
+      if (u.uGlobalSeed) u.uGlobalSeed.value = this.envParams.random.seed;
+      if (u.uInteractionRadius) u.uInteractionRadius.value = this.envParams.interaction.radius;
+      if (u.uInteractionStrength) u.uInteractionStrength.value = this.envParams.interaction.strength;
+
+      // Texture Scales
+      if (u.uLayer0Scale) u.uLayer0Scale.value = this.envParams.terrain.forestTexScale;
+      if (u.uLayer1Scale) u.uLayer1Scale.value = this.envParams.terrain.mudTexScale;
     }
 
     const projScreenMatrix = new THREE.Matrix4();
@@ -776,9 +796,9 @@ export class ChunkManager {
       } else {
         chunkIndex++;
         chunk.quickFrustumCheck(frustum);
-        
+
         if (chunk.mesh && chunk.mesh.visible && (chunkIndex % 4 === this.updateFrameOffset % 4)) {
-           chunk.updateLOD(playerPosition, null);
+          chunk.updateLOD(playerPosition, null);
         }
       }
     }

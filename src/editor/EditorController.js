@@ -14,7 +14,7 @@ import { TexturePainter } from "./TexturePainter.js";
 const UNDO_MAX = 60;
 
 export class EditorController {
-  constructor(scene, camera, raycaster, chunkManager, placedObjectManager, terrainSplineManager, gui) {
+  constructor(scene, camera, raycaster, chunkManager, placedObjectManager, terrainSplineManager, terrainNoiseBrushManager, gui) {
     this.scene = scene;
     this.camera = camera;
     this.raycaster = raycaster;
@@ -22,6 +22,7 @@ export class EditorController {
     this.chunkSize = chunkManager.chunkSize;
     this.placedObjectManager = placedObjectManager;
     this.terrainSplineManager = terrainSplineManager;
+    this.terrainNoiseBrushManager = terrainNoiseBrushManager;
     this.gui = gui;
     this.active = false;
     this.mouse = new THREE.Vector2();
@@ -56,6 +57,12 @@ export class EditorController {
     };
 
     // ── Terrain mode state ──────────────────────────────────────────────────
+    this.terrainSubMode = "spline"; // "spline" or "noise"
+    this.isPaintingNoise = false;
+    this.noiseBrushPreview = null;
+    this.noiseRegionHighlight = new THREE.Group();
+    this.scene.add(this.noiseRegionHighlight);
+    
     this.isDrawingSpline = false;
     this.tempSplinePoints = [];
     this.selectedSplineId = null;
@@ -277,6 +284,71 @@ export class EditorController {
   }
 
   _initTerrainButtons() {
+    // Submode toggles
+    const btnSubSpline = document.getElementById("btn-submode-spline");
+    const btnSubNoise = document.getElementById("btn-submode-noise");
+    if (btnSubSpline) {
+      btnSubSpline.addEventListener("click", () => {
+        this.terrainSubMode = "spline";
+        this._updateTerrainUI();
+        this.renderSplines();
+        if (this.noiseBrushPreview) this.noiseBrushPreview.visible = false;
+        this.noiseRegionHighlight.clear();
+      });
+    }
+    if (btnSubNoise) {
+      btnSubNoise.addEventListener("click", () => {
+        this.terrainSubMode = "noise";
+        this.isDrawingSpline = false;
+        this.selectedSplineId = null;
+        this._updateTerrainUI();
+        this.renderSplines();
+      });
+    }
+
+    // Noise Brush Modes
+    const noiseAdd = document.getElementById("btn-noise-add");
+    const noiseRemove = document.getElementById("btn-noise-remove");
+    const noiseSmooth = document.getElementById("btn-noise-smooth");
+    const updateNoiseMode = (mode) => {
+        if (this.terrainNoiseBrushManager) this.terrainNoiseBrushManager.brushParams.mode = mode;
+        this._updateTerrainUI();
+    };
+    if (noiseAdd) noiseAdd.addEventListener("click", () => updateNoiseMode("add"));
+    if (noiseRemove) noiseRemove.addEventListener("click", () => updateNoiseMode("remove"));
+    if (noiseSmooth) noiseSmooth.addEventListener("click", () => updateNoiseMode("smooth"));
+
+    // Noise Brush Region Panel Elements
+    const regionMode = document.getElementById("region-edit-mode");
+    const regionStrength = document.getElementById("region-edit-strength");
+    const regionFalloff = document.getElementById("region-edit-falloff");
+    const regionDelete = document.getElementById("btn-region-delete");
+
+    const updateSelectedRegion = () => {
+        if (this.terrainNoiseBrushManager && this.terrainNoiseBrushManager.selectedRegionId) {
+            this.terrainNoiseBrushManager.updateRegion(this.terrainNoiseBrushManager.selectedRegionId, {
+                mode: regionMode.value,
+                strength: parseFloat(regionStrength.value),
+                falloff: parseFloat(regionFalloff.value)
+            });
+            this.debouncedFlush();
+        }
+    };
+    if (regionMode) regionMode.addEventListener("change", updateSelectedRegion);
+    if (regionStrength) regionStrength.addEventListener("input", updateSelectedRegion);
+    if (regionFalloff) regionFalloff.addEventListener("input", updateSelectedRegion);
+    if (regionDelete) {
+        regionDelete.addEventListener("click", () => {
+             if (this.terrainNoiseBrushManager && this.terrainNoiseBrushManager.selectedRegionId) {
+                 this.terrainNoiseBrushManager.removeRegion(this.terrainNoiseBrushManager.selectedRegionId);
+                 this.terrainNoiseBrushManager.selectedRegionId = null;
+                 this.terrainNoiseBrushManager.flushUpdates();
+                 this._updateTerrainUI();
+                 this._updateRegionHighlight();
+             }
+        });
+    }
+
     const types = {
       "btn-ridge": "ridge",
       "btn-valley": "valley",
@@ -376,6 +448,65 @@ export class EditorController {
   }
 
   _updateTerrainUI() {
+    // Panels
+    const splinePanel = document.getElementById("spline-tools-panel");
+    const noisePanel = document.getElementById("noise-brush-panel");
+    const btnSubSpline = document.getElementById("btn-submode-spline");
+    const btnSubNoise = document.getElementById("btn-submode-noise");
+    
+    if (splinePanel) splinePanel.style.display = this.terrainSubMode === "spline" ? "" : "none";
+    if (noisePanel) noisePanel.style.display = this.terrainSubMode === "noise" ? "" : "none";
+    
+    if (btnSubSpline) btnSubSpline.classList.toggle("active", this.terrainSubMode === "spline");
+    if (btnSubNoise) btnSubNoise.classList.toggle("active", this.terrainSubMode === "noise");
+
+    // Noise Brush Values
+    if (this.terrainNoiseBrushManager) {
+      const bParams = this.terrainNoiseBrushManager.brushParams;
+      document.getElementById("btn-noise-add")?.classList.toggle("active", bParams.mode === "add");
+      document.getElementById("btn-noise-remove")?.classList.toggle("active", bParams.mode === "remove");
+      document.getElementById("btn-noise-smooth")?.classList.toggle("active", bParams.mode === "smooth");
+      
+      const pSize = document.getElementById("noise-size-val");
+      const pStr = document.getElementById("noise-strength-val");
+      const pFall = document.getElementById("noise-falloff-val");
+      if (pSize) pSize.textContent = bParams.size.toFixed(1);
+      if (pStr) pStr.textContent = bParams.strength.toFixed(1);
+      if (pFall) pFall.textContent = bParams.falloff.toFixed(1);
+
+      // Region panel visibility
+      const regionPanel = document.getElementById("region-edit-panel");
+      if (regionPanel) {
+        if (this.terrainSubMode === "noise" && this.terrainNoiseBrushManager.selectedRegionId) {
+            regionPanel.style.display = "";
+            const selReg = this.terrainNoiseBrushManager.getRegionById(this.terrainNoiseBrushManager.selectedRegionId);
+            if (selReg) {
+                const rMode = document.getElementById("region-edit-mode");
+                const rStr = document.getElementById("region-edit-strength");
+                const rFall = document.getElementById("region-edit-falloff");
+                if (rMode) rMode.value = selReg.settings.mode;
+                if (rStr) rStr.value = selReg.settings.strength;
+                if (rFall) rFall.value = selReg.settings.falloff;
+
+                const microContainer = document.getElementById("region-micro-params-container");
+                if (microContainer && selReg.microParams) {
+                    if (microContainer.children.length === 0) {
+                        this._buildRegionMicroUI(microContainer);
+                    }
+                    for (const key in selReg.microParams) {
+                        const el = document.getElementById("rmicro-" + key);
+                        if (el) el.value = selReg.microParams[key];
+                        const valEl = document.getElementById("rmicro-val-" + key);
+                        if (valEl) valEl.textContent = selReg.microParams[key].toFixed(3);
+                    }
+                }
+            }
+        } else {
+            regionPanel.style.display = "none";
+        }
+      }
+    }
+
     // Update spline type buttons active class
     const typeIds = ["btn-ridge", "btn-valley", "btn-plateau", "btn-road"];
     const currentType = this.selectedSplineId
@@ -416,6 +547,51 @@ export class EditorController {
         status.textContent = "Click spline / C to draw / 1-2 switch mode";
       }
     }
+  }
+
+  _buildRegionMicroUI(container) {
+      const configs = [
+        { key: 'baseAmp', min: 0.0, max: 0.2, step: 0.001 },
+        { key: 'erosionAmp', min: 0.0, max: 0.1, step: 0.001 },
+        { key: 'midAmp', min: 0.0, max: 0.1, step: 0.001 },
+        { key: 'detailAmp', min: 0.0, max: 0.05, step: 0.001 },
+        { key: 'baseFreq', min: 0.0, max: 0.1, step: 0.001 },
+        { key: 'erosionFreq', min: 0.1, max: 20.0, step: 0.1 },
+        { key: 'midFreq', min: 0.1, max: 20.0, step: 0.1 },
+        { key: 'detailFreq', min: 0.1, max: 30.0, step: 0.1 },
+        { key: 'warpFreq', min: 0.01, max: 1.0, step: 0.01 },
+        { key: 'warpStrength', min: 0.0, max: 2.0, step: 0.01 },
+        { key: 'microHeight', min: 0.0, max: 2.0, step: 0.01 },
+        { key: 'heightMult', min: 0.0, max: 5.0, step: 0.1 }
+      ];
+
+      container.innerHTML = "";
+      configs.forEach(c => {
+          const row = document.createElement("div");
+          row.style.display = "flex";
+          row.style.justifyContent = "space-between";
+          row.style.marginBottom = "5px";
+          row.style.fontSize = "11px";
+          row.style.alignItems = "center";
+          row.innerHTML = `
+              <span style="width:70px; overflow:hidden; text-overflow:ellipsis;" title="${c.key}">${c.key}</span>
+              <input type="range" id="rmicro-${c.key}" min="${c.min}" max="${c.max}" step="${c.step}" style="width:70px;">
+              <span id="rmicro-val-${c.key}" style="width:35px; text-align:right;">0</span>
+          `;
+          container.appendChild(row);
+
+          const input = row.querySelector(`#rmicro-${c.key}`);
+          input.addEventListener("input", (e) => {
+              const val = parseFloat(e.target.value);
+              row.querySelector(`#rmicro-val-${c.key}`).textContent = val.toFixed(3);
+              if (this.terrainNoiseBrushManager && this.terrainNoiseBrushManager.selectedRegionId) {
+                  const paramPatch = {};
+                  paramPatch[c.key] = val;
+                  this.terrainNoiseBrushManager.updateRegion(this.terrainNoiseBrushManager.selectedRegionId, null, paramPatch);
+                  this.debouncedFlush();
+              }
+          });
+      });
   }
 
   _setupHelpGui() {
@@ -503,7 +679,7 @@ export class EditorController {
     window.addEventListener("mousedown", (e) => {
       if (!this.active) return;
       if (document.pointerLockElement) return;
-      if (e.target.closest(".lil-gui, button, input, select, textarea, [data-ui]")) return;
+      if (e.target.closest(".lil-gui, button, input, select, textarea, [data-ui], #region-edit-panel")) return;
 
       this.updateMouse(e);
       if (this.editorMode === "object") {
@@ -519,6 +695,11 @@ export class EditorController {
     // ── MOUSE MOVE ──────────────────────────────────────────────────────────
     window.addEventListener("mousemove", (e) => {
       if (!this.active) return;
+      if (e.target.closest(".lil-gui, button, input, select, textarea, [data-ui], #region-edit-panel")) {
+          if (this.noiseBrushPreview) this.noiseBrushPreview.visible = false;
+          if (this.previewMesh) this.previewMesh.visible = false;
+          return;
+      }
       this.updateMouse(e);
 
       let hit = null;
@@ -592,11 +773,17 @@ export class EditorController {
     window.addEventListener("mouseup", () => {
       this.isSelectingGrass = false;
       this.isPainting = false;
+      if (this.isPaintingNoise && this.terrainNoiseBrushManager) {
+          this.isPaintingNoise = false;
+          this.terrainNoiseBrushManager.flushUpdates();
+          this._updateRegionHighlight();
+      }
     });
 
     // ── WHEEL ───────────────────────────────────────────────────────────────
     window.addEventListener("wheel", (e) => {
       if (!this.active) return;
+      if (e.target.closest(".lil-gui, button, input, select, textarea, [data-ui], #region-edit-panel")) return;
 
       if (this.editorMode === "object") {
         if (e.shiftKey) {
@@ -621,18 +808,25 @@ export class EditorController {
           this.rotation.y += (e.deltaY > 0 ? 1 : -1) * 0.15;
           if (this.previewMesh) this.previewMesh.rotation.copy(this.rotation);
         }
-      } else if (this.editorMode === "terrain" && this.isDrawingSpline && this.tempSplinePoints.length > 0) {
-        // Control radius of the last green dot with the scroll wheel.
-        // Adaptive step: 10% of current radius for smooth control at any scale.
-        // NO Math.max() clamp — allows sub-foot precision (radius can go to 0.01).
-        const lastIdx = this.tempSplinePoints.length - 1;
-        const lastPoint = this.tempSplinePoints[lastIdx];
-        const currentRadius = lastPoint[2].radius || 1.0;
-        const scrollStep = Math.max(0.01, currentRadius * 0.1) * (e.deltaY > 0 ? -1 : 1);
-        lastPoint[2].radius = Math.max(0.01, currentRadius + scrollStep);
-
-        this.renderSplines();
-        e.preventDefault();
+      } else if (this.editorMode === "terrain") {
+        if (this.terrainSubMode === "spline" && this.isDrawingSpline && this.tempSplinePoints.length > 0) {
+          const lastIdx = this.tempSplinePoints.length - 1;
+          const lastPoint = this.tempSplinePoints[lastIdx];
+          const currentRadius = lastPoint[2].radius || 1.0;
+          const scrollStep = Math.max(0.01, currentRadius * 0.1) * (e.deltaY > 0 ? -1 : 1);
+          lastPoint[2].radius = Math.max(0.01, currentRadius + scrollStep);
+  
+          this.renderSplines();
+          e.preventDefault();
+        } else if (this.terrainSubMode === "noise" && e.shiftKey) {
+            const amt = (e.deltaY > 0 ? -1 : 1);
+            if (this.terrainNoiseBrushManager) {
+                this.terrainNoiseBrushManager.brushParams.size = Math.max(1, this.terrainNoiseBrushManager.brushParams.size + amt * 2.0);
+            }
+            this._updateTerrainUI();
+            this._updateNoiseBrushVisual();
+            e.preventDefault();
+        }
       }
     });
 
@@ -1232,34 +1426,63 @@ export class EditorController {
     const hit = this._raycastTerrain();
     if (!hit) return;
 
-    if (this.isDrawingSpline) {
-      // Add point with current default settings
-      this.tempSplinePoints.push([
-        hit.x,
-        hit.z,
-        {
-          radius: this.terrainSplineWidth,
-          strength: this.terrainSplineStrength,
-          falloff: 2.0,
-          visualSize: 2.0
-        }
-      ]);
+    if (this.terrainSubMode === "spline") {
+      if (this.isDrawingSpline) {
+        // Add point with current default settings
+        this.tempSplinePoints.push([
+          hit.x,
+          hit.z,
+          {
+            radius: this.terrainSplineWidth,
+            strength: this.terrainSplineStrength,
+            falloff: 2.0,
+            visualSize: 2.0
+          }
+        ]);
+        this.renderSplines();
+        return;
+      }
+  
+      // Check if selecting a spline (polyline click)
+      const selected = this._selectClosestSpline(hit.x, hit.z);
+      if (selected) {
+        this.selectedSplineId = selected.id;
+      } else {
+        this.selectedSplineId = null;
+      }
       this.renderSplines();
-      return;
+    } else if (this.terrainSubMode === "noise") {
+      const selectedRegion = this._selectClosestRegion(hit.x, hit.z);
+      if (selectedRegion && !e.shiftKey) { 
+          this.terrainNoiseBrushManager.selectedRegionId = selectedRegion.id;
+          this._updateTerrainUI();
+          this._updateRegionHighlight();
+      } else {
+          this.terrainNoiseBrushManager.selectedRegionId = null;
+          this.isPaintingNoise = true;
+          this.terrainNoiseBrushManager.startStroke(hit.x, hit.z);
+          this._updateTerrainUI();
+          this._updateRegionHighlight();
+      }
     }
-
-    // Check if selecting a spline (polyline click)
-    const selected = this._selectClosestSpline(hit.x, hit.z);
-    if (selected) {
-      this.selectedSplineId = selected.id;
-    } else {
-      this.selectedSplineId = null;
-    }
-    this.renderSplines();
   }
 
   _onTerrainMouseMove(e, hit) {
-    // No-op for now
+    if (this.terrainSubMode === "noise") {
+        if (!this.noiseBrushPreview) this._initNoiseBrushPreview();
+        if (hit) {
+            this.noiseBrushPreview.visible = true;
+            this.noiseBrushPreview.position.copy(hit);
+            this._updateNoiseBrushVisual();
+            if (this.isPaintingNoise && this.terrainNoiseBrushManager) {
+                this.terrainNoiseBrushManager.addStamp(hit.x, hit.z);
+            }
+        } else {
+            this.noiseBrushPreview.visible = false;
+        }
+    } else {
+        if (this.noiseBrushPreview) this.noiseBrushPreview.visible = false;
+    }
   }
 
   _onTerrainKeyDown(e) {
@@ -1269,6 +1492,35 @@ export class EditorController {
       this.isDrawingSpline = true;
       this.tempSplinePoints = [];
       this.renderSplines();
+      return;
+    }
+
+    if (this.terrainSubMode === "noise") {
+      if (e.code === "Delete" || e.code === "Backspace") {
+        if (this.terrainNoiseBrushManager && this.terrainNoiseBrushManager.selectedRegionId) {
+          const id = this.terrainNoiseBrushManager.selectedRegionId;
+          const region = this.terrainNoiseBrushManager.getRegionById(id);
+          const oldState = JSON.parse(JSON.stringify(region));
+          
+          this.terrainNoiseBrushManager.removeRegion(id);
+          this.terrainNoiseBrushManager.selectedRegionId = null;
+          this.terrainNoiseBrushManager.flushUpdates();
+          
+          this._pushUndo(() => {
+            if (this.terrainNoiseBrushManager) {
+               this.terrainNoiseBrushManager.regions.push(oldState);
+               this.terrainNoiseBrushManager.markDirty(oldState.bounds);
+               this.terrainNoiseBrushManager.selectedRegionId = oldState.id;
+               this.terrainNoiseBrushManager.flushUpdates();
+               this._updateTerrainUI();
+               this._updateRegionHighlight();
+            }
+          });
+          
+          this._updateTerrainUI();
+          this._updateRegionHighlight();
+        }
+      }
       return;
     }
 
@@ -1368,6 +1620,68 @@ export class EditorController {
     }
   }
 
+  _initNoiseBrushPreview() {
+      const geo = new THREE.CylinderGeometry(1, 1, 4, 32, 1, true);
+      const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false });
+      this.noiseBrushPreview = new THREE.Mesh(geo, mat);
+      this.noiseBrushPreview.visible = false;
+      this.scene.add(this.noiseBrushPreview);
+  }
+
+  _updateNoiseBrushVisual() {
+      if (!this.noiseBrushPreview || !this.terrainNoiseBrushManager) return;
+      const params = this.terrainNoiseBrushManager.brushParams;
+      this.noiseBrushPreview.scale.set(params.size, 1, params.size);
+      
+      let color = 0x00ff00;
+      if (params.mode === 'remove') color = 0xff0000;
+      else if (params.mode === 'smooth') color = 0x0088ff;
+      
+      this.noiseBrushPreview.material.color.setHex(color);
+  }
+
+  _selectClosestRegion(x, z) {
+      if (!this.terrainNoiseBrushManager) return null;
+      for (const region of this.terrainNoiseBrushManager.regions) {
+          if (x >= region.bounds.minX && x <= region.bounds.maxX &&
+              z >= region.bounds.minZ && z <= region.bounds.maxZ) {
+                  for (const p of region.points) {
+                      const distSq = (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z);
+                      if (distSq <= p.radius * p.radius) {
+                          return region;
+                      }
+                  }
+          }
+      }
+      return null;
+  }
+
+  _updateRegionHighlight() {
+      this.noiseRegionHighlight.clear();
+      if (!this.terrainNoiseBrushManager || !this.terrainNoiseBrushManager.selectedRegionId) return;
+
+      const region = this.terrainNoiseBrushManager.getRegionById(this.terrainNoiseBrushManager.selectedRegionId);
+      if (!region || region.points.length === 0) return;
+
+      const points = [];
+      for (const p of region.points) {
+          const y = this.chunkManager.getHeight(p.x, p.z) + 0.5;
+          points.push(new THREE.Vector3(p.x, y, p.z));
+      }
+      
+      if (points.length > 1) {
+          const geo = new THREE.BufferGeometry().setFromPoints(points);
+          const mat = new THREE.LineBasicMaterial({ color: 0xffcc77, linewidth: 2 });
+          this.noiseRegionHighlight.add(new THREE.Line(geo, mat));
+      } else {
+          const p = region.points[0];
+          const mesh = new THREE.Mesh(new THREE.RingGeometry(p.radius, p.radius + 0.5, 32), new THREE.MeshBasicMaterial({ color: 0xffcc77, side: THREE.DoubleSide }));
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.position.set(p.x, this.chunkManager.getHeight(p.x, p.z) + 0.5, p.z);
+          this.noiseRegionHighlight.add(mesh);
+      }
+  }
+
   _selectClosestSpline(x, z) {
     let closest = null;
     let minDist = 10; // Threshold
@@ -1439,8 +1753,6 @@ export class EditorController {
     if (this.isDrawingSpline && this.tempSplinePoints.length > 0) {
       this.tempSplinePoints.forEach(p => {
         const y = this.chunkManager.getHeight(p[0], p[1]) + 0.5;
-        // 1:1 visual scale — dot size exactly matches influence radius in world space — DISABLED
-        // Now using decoupled visualSize (defaulting to 0.5 for clean drawing)
         const pData = p[2] || {};
         const vSize = Math.max(0.1, Math.min(pData.visualSize !== undefined ? pData.visualSize : 2.0, 20.0));
 
