@@ -9,23 +9,23 @@
 </head>
 
 <body>
-    <!-- Loader -->
-    <div id="loader">
+
+    <!-- <div id="loader">
         <div id="progress">Loading 0%</div>
     </div>
 
-    <!-- Mode indicator (centered top) -->
+
     <div id="mode-indicator">RUNTIME</div>
 
-    <!-- Editor sidebar (hidden by default) -->
+
     <div id="editor-ui" style="display:none;">
         <h3>🛠️ MAP EDITOR</h3>
 
-        <!-- Sub-mode badge -->
+       
         <div id="terrain-mode-indicator" class="sub-mode-badge">🪵 OBJECT MODE</div>
         <p class="mode-hint">Press <kbd>1</kbd> Terrain &nbsp;|&nbsp; <kbd>2</kbd> Object</p>
 
-        <!-- ══ OBJECT MODE PANEL ════════════════════════════════════════════ -->
+      
         <div id="object-mode-panel">
             <p>
                 Left Click → Place &nbsp;|&nbsp; Shift+Click → Delete<br>
@@ -41,21 +41,21 @@
             </div>
         </div>
 
-        <!-- ══ TERRAIN MODE PANEL ═══════════════════════════════════════════ -->
+     
         <div id="terrain-mode-panel" style="display:none;">
 
-            <!-- Status line -->
+       
             <div id="terrain-status" class="terrain-status">Click spline / C to draw / 1-2 switch mode</div>
 
-            <!-- Terrain Submode Toggle -->
+          
             <div class="terrain-submode-row">
                 <button id="btn-submode-spline" class="type-btn active">🛤️ Splines</button>
                 <button id="btn-submode-noise" class="type-btn">🖌️ Noise Brush</button>
             </div>
 
-            <!-- ── SPLINE TOOLS (Default) ── -->
+          
             <div id="spline-tools-panel">
-                <!-- Spline type buttons -->
+         
             <div class="terrain-section-label">SPLINE TYPE</div>
             <div class="terrain-type-row">
                 <button id="btn-ridge" class="type-btn active" title="R key">⛰️ Ridge</button>
@@ -64,7 +64,7 @@
                 <button id="btn-road" class="type-btn" title="O key">🛤️ Road</button>
             </div>
 
-            <!-- Width / Strength display -->
+          
             <div class="terrain-params">
                 <div class="param-row">
                     <span class="param-label">Width</span>
@@ -76,7 +76,7 @@
                 </div>
             </div>
 
-            <!-- Keyboard guide -->
+           
             <div class="terrain-keys">
                 <div class="key-row"><kbd>C</kbd> Start drawing spline</div>
                 <div class="key-row"><kbd>Enter</kbd> Finalise spline</div>
@@ -91,7 +91,7 @@
             </div>
             </div>
 
-            <!-- ── NOISE BRUSH TOOLS ── -->
+           
             <div id="noise-brush-panel" style="display:none; margin-top: 10px;">
                 <div class="terrain-section-label">BRUSH MODE</div>
                 <div class="terrain-type-row">
@@ -99,7 +99,7 @@
                     <button id="btn-noise-remove" class="type-btn" title="Erase intensity">Remove</button>
                     <button id="btn-noise-smooth" class="type-btn" title="Smooth intensity">Smooth</button>
                 </div>
-                <!-- Width / Strength display -->
+        
                 <div class="terrain-params">
                     <div class="param-row">
                         <span class="param-label">Size (Shift+Scroll)</span>
@@ -121,7 +121,7 @@
                 </div>
             </div>
 
-            <!-- Export terrain-only -->
+          
             <div class="editor-btn-row" style="margin-top:8px;">
                 <button id="export-terrain">⛰️ Export Terrain</button>
                 <button id="export-json" style="display:none;">💾 Export Map</button>
@@ -138,7 +138,7 @@
         <div id="editor-hint">Press P to toggle Editor / Game Mode</div>
     </div>
 
-    <!-- ══ REGION EDIT PANEL (Left Side) ════════════════════════════════════ -->
+   
     <div id="region-edit-panel" style="display:none; position:absolute; z-index:1000; left:20px; top:60px; width:220px; background:rgba(20,20,20,0.9); padding:15px; border-radius:8px; border:1px solid #444; color:#ddd; font-family:sans-serif;">
         <h3 style="margin-top:0; color:#ffcc77; font-size:14px;">🖌️ REGION EDIT</h3>
         <p style="font-size:11px; color:#aaa; margin-bottom:10px;">Changes apply instantly</p>
@@ -163,15 +163,15 @@
         <div style="margin-top: 15px; border-top: 1px solid #444; padding-top: 10px;">
             <p style="font-size:11px; color:#aaa; margin-bottom:5px; text-transform:uppercase;">Local Terrain Micro</p>
             <div id="region-micro-params-container" style="max-height: 250px; overflow-y: auto; padding-right: 5px;">
-                <!-- Dynamically populated by EditorController.js -->
+           
             </div>
         </div>
 
         <button id="btn-region-delete" style="width:100%; margin-top:10px; background:#aa3333; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer;">Delete Region</button>
-    </div>
+    </div> -->
 
     <canvas class="webgl"></canvas>
-    <script type="module" src="./src/main.js"></script>
+    <script type="module" src="./src/main_simple.js"></script>
 </body>
 
 </html>
